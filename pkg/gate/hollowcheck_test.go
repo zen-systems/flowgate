@@ -234,7 +234,7 @@ func TestGenerateRepairHint(t *testing.T) {
 }
 
 func TestToGateResult(t *testing.T) {
-	gate := NewHollowCheckGate("", "")
+	g := NewHollowCheckGate("", "")
 
 	t.Run("passing result", func(t *testing.T) {
 		output := &hollowcheckOutput{
@@ -242,19 +242,19 @@ func TestToGateResult(t *testing.T) {
 			Score:      0, // hollowcheck score is penalty points, 0 = perfect
 			Violations: nil,
 		}
-		result := gate.toGateResult(output)
+		result := g.toGateResult(output)
 		if !result.Passed {
 			t.Error("expected Passed=true")
 		}
-		if result.Score != 100 { // 100 - 0 = 100
-			t.Errorf("Score = %d, want 100", result.Score)
+		if result.Score != 0 { // lower is better, 0 = perfect
+			t.Errorf("Score = %d, want 0", result.Score)
 		}
 	})
 
 	t.Run("passing with some violations", func(t *testing.T) {
 		output := &hollowcheckOutput{
 			Passed: true,  // still passed (under threshold)
-			Score:  20,    // 20 penalty points
+			Score:  20,    // 20 penalty points (hollowness)
 			Violations: []hollowcheckIssue{
 				{
 					Rule:     "forbidden_pattern",
@@ -265,19 +265,19 @@ func TestToGateResult(t *testing.T) {
 				},
 			},
 		}
-		result := gate.toGateResult(output)
+		result := g.toGateResult(output)
 		if !result.Passed {
 			t.Error("expected Passed=true")
 		}
-		if result.Score != 80 { // 100 - 20 = 80
-			t.Errorf("Score = %d, want 80", result.Score)
+		if result.Score != 20 { // lower is better, 20% hollowness
+			t.Errorf("Score = %d, want 20", result.Score)
 		}
 	})
 
 	t.Run("failing result with violations", func(t *testing.T) {
 		output := &hollowcheckOutput{
 			Passed: false,
-			Score:  60, // 60 penalty points
+			Score:  60, // 60 penalty points (hollowness)
 			Violations: []hollowcheckIssue{
 				{
 					Rule:     "forbidden_pattern",
@@ -295,12 +295,12 @@ func TestToGateResult(t *testing.T) {
 				},
 			},
 		}
-		result := gate.toGateResult(output)
+		result := g.toGateResult(output)
 		if result.Passed {
 			t.Error("expected Passed=false")
 		}
-		if result.Score != 40 { // 100 - 60 = 40
-			t.Errorf("Score = %d, want 40", result.Score)
+		if result.Score != 60 { // lower is better, 60% hollowness = bad
+			t.Errorf("Score = %d, want 60", result.Score)
 		}
 		if len(result.Violations) != 2 {
 			t.Errorf("got %d violations, want 2", len(result.Violations))

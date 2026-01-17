@@ -227,8 +227,8 @@ func (g *HollowCheckGate) runHollowcheck(dir string) (*hollowcheckOutput, error)
 		return nil, fmt.Errorf("hollowcheck failed: %v, stderr: %s", err, stderr.String())
 	}
 
-	// Empty output means no issues
-	return &hollowcheckOutput{Passed: true, Score: 100}, nil
+	// Empty output means no issues (score 0 = no penalty points)
+	return &hollowcheckOutput{Passed: true, Score: 0}, nil
 }
 
 // toGateResult converts hollowcheck output to a GateResult.
@@ -256,17 +256,12 @@ func (g *HollowCheckGate) toGateResult(output *hollowcheckOutput) *GateResult {
 		}
 	}
 
-	// Calculate score as 100 - hollowcheck score (hollowcheck score is penalty points)
-	displayScore := 100 - output.Score
-	if displayScore < 0 {
-		displayScore = 0
-	}
-
+	// Use hollowcheck score directly (lower is better: 0 = perfect, higher = more issues)
 	if output.Passed {
-		return NewPassingResult(displayScore)
+		return NewPassingResult(output.Score)
 	}
 
-	return NewFailingResult(displayScore, violations, repairHints)
+	return NewFailingResult(output.Score, violations, repairHints)
 }
 
 // generateRepairHint creates an actionable repair hint from an issue.

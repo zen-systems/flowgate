@@ -164,12 +164,12 @@ the issues and regenerate (up to --retries attempts).`,
 				}
 
 				if result.Passed {
-					fmt.Fprintf(os.Stderr, "Quality gate passed (score: %d)\n", result.Score)
+					fmt.Fprintf(os.Stderr, "Quality gate passed (hollowness: %d%%)\n", result.Score)
 					break
 				}
 
 				// Gate failed
-				fmt.Fprintf(os.Stderr, "Quality gate failed (score: %d, %d violations)\n",
+				fmt.Fprintf(os.Stderr, "Quality gate failed (hollowness: %d%%, %d violations)\n",
 					result.Score, len(result.Violations))
 
 				if attempt == maxRetries {
