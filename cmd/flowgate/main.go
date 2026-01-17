@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"text/tabwriter"
@@ -10,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/zen-systems/flowgate/pkg/adapter"
 	"github.com/zen-systems/flowgate/pkg/config"
+	"github.com/zen-systems/flowgate/pkg/curator"
+	"github.com/zen-systems/flowgate/pkg/curator/sources"
 	"github.com/zen-systems/flowgate/pkg/router"
 )
 
@@ -43,11 +46,17 @@ quality gates on outputs.`,
 }
 
 func askCmd() *cobra.Command {
+	var deepFlag bool
+
 	cmd := &cobra.Command{
 		Use:   "ask [prompt]",
 		Short: "Send a prompt to the appropriate LLM",
 		Long: `Routes the prompt to the best LLM based on task type detection,
-or use --adapter and --model to override.`,
+or use --adapter and --model to override.
+
+Use --deep for complex queries that benefit from context curation.
+The curator will analyze your query, gather relevant information from
+multiple sources, and synthesize an optimal context before responding.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prompt := args[0]
@@ -68,7 +77,7 @@ or use --adapter and --model to override.`,
 
 			r := router.NewRouter(adapters, cfg.RoutingConfig, router.WithAliases(aliases))
 
-			var result *adapter.Adapter
+			var targetAdapter adapter.Adapter
 			var model string
 
 			if adapterFlag != "" {
@@ -76,7 +85,7 @@ or use --adapter and --model to override.`,
 				if !ok {
 					return fmt.Errorf("adapter %q not available", adapterFlag)
 				}
-				result = &a
+				targetAdapter = a
 				if modelFlag != "" {
 					// Resolve alias if provided
 					model = modelFlag
@@ -90,18 +99,27 @@ or use --adapter and --model to override.`,
 					}
 				}
 			} else {
-				a, m := r.Route(prompt)
-				result = &a
-				model = m
+				targetAdapter, model = r.Route(prompt)
 			}
 
-			if result == nil || *result == nil {
+			if targetAdapter == nil {
 				return fmt.Errorf("no adapter available")
 			}
 
-			fmt.Fprintf(os.Stderr, "Routing to %s/%s\n", (*result).Name(), model)
+			// Wrap with Curator if --deep flag is set
+			var finalAdapter adapter.Adapter = targetAdapter
+			if deepFlag {
+				cur, err := createCurator(targetAdapter, cfg)
+				if err != nil {
+					return fmt.Errorf("failed to create curator: %w", err)
+				}
+				finalAdapter = cur
+				fmt.Fprintf(os.Stderr, "Using curator with %s/%s\n", targetAdapter.Name(), model)
+			} else {
+				fmt.Fprintf(os.Stderr, "Routing to %s/%s\n", targetAdapter.Name(), model)
+			}
 
-			artifact, err := (*result).Generate(context.Background(), model, prompt)
+			artifact, err := finalAdapter.Generate(context.Background(), model, prompt)
 			if err != nil {
 				return fmt.Errorf("generation failed: %w", err)
 			}
@@ -113,8 +131,52 @@ or use --adapter and --model to override.`,
 
 	cmd.Flags().StringVar(&adapterFlag, "adapter", "", "override adapter (anthropic, openai, google)")
 	cmd.Flags().StringVar(&modelFlag, "model", "", "override model")
+	cmd.Flags().BoolVar(&deepFlag, "deep", false, "use context curator for complex queries")
 
 	return cmd
+}
+
+// createCurator initializes the Curator with available sources.
+func createCurator(targetAdapter adapter.Adapter, cfg *config.Config) (*curator.Curator, error) {
+	// Build curator options based on available resources
+	opts := []curator.CuratorOption{
+		curator.WithConfig(curator.CuratorConfig{
+			TargetAdapter:       targetAdapter.Name(),
+			TargetModel:         "", // Will use model from Generate call
+			AnalysisModel:       "", // Will use same as target
+			ContextBudget:       100000,
+			ConfidenceThreshold: 0.7,
+			EnabledSources:      []curator.SourceType{curator.SourceFilesystem, curator.SourceMemory, curator.SourceArtifacts},
+			MaxGatherParallel:   10,
+			MaxGatherPerSource:  20,
+			Debug:               true,
+		}),
+		curator.WithLogger(func(format string, args ...any) {
+			log.Printf(format, args...)
+		}),
+	}
+
+	// Add filesystem source (current directory)
+	cwd, err := os.Getwd()
+	if err == nil {
+		opts = append(opts, curator.WithFilesystemSource(cwd))
+	}
+
+	// Add memory source for conversation tracking
+	opts = append(opts, curator.WithMemorySource(sources.NewMemorySource()))
+
+	// Add artifact source for tracking outputs
+	opts = append(opts, curator.WithArtifactSource(sources.NewArtifactSource()))
+
+	// Add web source if Tavily API key is available
+	if os.Getenv("TAVILY_API_KEY") != "" {
+		opts = append(opts, curator.WithWebSource())
+		log.Println("[curator] Web search enabled (Tavily)")
+	}
+
+	// Use the target adapter for both generation and analysis
+	// This keeps it simple - use the same model for everything
+	return curator.NewCurator(targetAdapter, targetAdapter, opts...)
 }
 
 func routesCmd() *cobra.Command {
