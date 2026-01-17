@@ -89,7 +89,7 @@ graph LR
     Router -- "Bulk Generation" --> DS_C[DeepSeek Coder]
     Router -- "Complex Reasoning" --> DS_R[DeepSeek Reasoner]
 
-    %% Stylized Nodes with Metadata (The "Why")
+    %% Stylized Nodes
     style Gem fill:#e8f0fe,stroke:#1967d2,stroke-width:2px,color:#000
     style GPT_I fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
     style GPT_C fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
@@ -99,7 +99,7 @@ graph LR
     style DS_C fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
     style DS_R fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
     
-    %% Legend/Grouping (Optional visual cue)
+    %% Grouping
     subgraph "Context & Synthesis"
     Gem
     end
@@ -119,6 +119,7 @@ graph LR
     DS_C
     DS_R
     end
+```
 
 ## Quality Gates
 
