@@ -71,6 +71,7 @@ Use fast/cheap models for volume work, quality models for integration and review
 | Bulk code generation | DeepSeek Coder | Aggressive pricing, gates catch issues anyway |
 | Complex reasoning | DeepSeek Reasoner | R1 competitive with o1 at fraction of cost |
 
+```mermaid
 graph LR
     %% Core Nodes
     Req([User Request]) --> Router{"Semantic<br/>Router"}
@@ -118,6 +119,7 @@ graph LR
     DS_C
     DS_R
     end
+```
 ## Quality Gates
 
 Flowgate integrates with [hollowcheck](https://github.com/zen-systems/hollowcheck) to enforce quality:
