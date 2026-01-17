@@ -74,7 +74,7 @@ Use fast/cheap models for volume work, quality models for integration and review
 ```mermaid
 graph LR
     %% Core Nodes
-    Req([User Request]) --> Router{Semantic\nRouter}
+    Req([User Request]) --> Router{Semantic \n Router}
     
     %% Routing Paths
     Router -- "Research & Long Docs" --> Gem[Gemini 2.0 Pro]
