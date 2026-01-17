@@ -6,13 +6,16 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"github.com/zen-systems/flowgate/pkg/adapter"
+	"github.com/zen-systems/flowgate/pkg/artifact"
 	"github.com/zen-systems/flowgate/pkg/config"
 	"github.com/zen-systems/flowgate/pkg/curator"
 	"github.com/zen-systems/flowgate/pkg/curator/sources"
+	"github.com/zen-systems/flowgate/pkg/gate"
 	"github.com/zen-systems/flowgate/pkg/router"
 )
 
@@ -47,6 +50,8 @@ quality gates on outputs.`,
 
 func askCmd() *cobra.Command {
 	var deepFlag bool
+	var gateFlag string
+	var maxRetries int
 
 	cmd := &cobra.Command{
 		Use:   "ask [prompt]",
@@ -56,7 +61,11 @@ or use --adapter and --model to override.
 
 Use --deep for complex queries that benefit from context curation.
 The curator will analyze your query, gather relevant information from
-multiple sources, and synthesize an optimal context before responding.`,
+multiple sources, and synthesize an optimal context before responding.
+
+Use --gate to enable quality gates with automatic repair loops.
+If the output fails quality checks, the model will be prompted to fix
+the issues and regenerate (up to --retries attempts).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prompt := args[0]
@@ -119,12 +128,60 @@ multiple sources, and synthesize an optimal context before responding.`,
 				fmt.Fprintf(os.Stderr, "Routing to %s/%s\n", targetAdapter.Name(), model)
 			}
 
-			artifact, err := finalAdapter.Generate(context.Background(), model, prompt)
-			if err != nil {
-				return fmt.Errorf("generation failed: %w", err)
+			// Initialize quality gate if requested
+			var qualityGate gate.Gate
+			if gateFlag != "" {
+				qualityGate = gate.NewHollowCheckGate("", gateFlag)
+				fmt.Fprintf(os.Stderr, "Quality gate enabled: %s\n", qualityGate.Name())
 			}
 
-			fmt.Println(artifact.Content)
+			// Generate with optional repair loop
+			var finalArtifact *artifact.Artifact
+			currentPrompt := prompt
+
+			for attempt := 1; attempt <= maxRetries; attempt++ {
+				if attempt > 1 {
+					fmt.Fprintf(os.Stderr, "Attempt %d/%d: Repairing output...\n", attempt, maxRetries)
+				}
+
+				// Generate
+				art, err := finalAdapter.Generate(context.Background(), model, currentPrompt)
+				if err != nil {
+					return fmt.Errorf("generation failed: %w", err)
+				}
+				finalArtifact = art
+
+				// Skip gate check if no gate configured
+				if qualityGate == nil {
+					break
+				}
+
+				// Check quality
+				result, err := qualityGate.Evaluate(art)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Gate check failed: %v\n", err)
+					break // Fail open if gate breaks
+				}
+
+				if result.Passed {
+					fmt.Fprintf(os.Stderr, "Quality gate passed (score: %d)\n", result.Score)
+					break
+				}
+
+				// Gate failed
+				fmt.Fprintf(os.Stderr, "Quality gate failed (score: %d, %d violations)\n",
+					result.Score, len(result.Violations))
+
+				if attempt == maxRetries {
+					fmt.Fprintf(os.Stderr, "Max retries reached. Final output did not pass gate.\n")
+					break
+				}
+
+				// Construct repair prompt
+				currentPrompt = buildRepairPrompt(prompt, art.Content, result)
+			}
+
+			fmt.Println(finalArtifact.Content)
 			return nil
 		},
 	}
@@ -132,8 +189,43 @@ multiple sources, and synthesize an optimal context before responding.`,
 	cmd.Flags().StringVar(&adapterFlag, "adapter", "", "override adapter (anthropic, openai, google)")
 	cmd.Flags().StringVar(&modelFlag, "model", "", "override model")
 	cmd.Flags().BoolVar(&deepFlag, "deep", false, "use context curator for complex queries")
+	cmd.Flags().StringVar(&gateFlag, "gate", "", "enable quality gate with contract file (e.g., hollowcheck.yaml)")
+	cmd.Flags().IntVar(&maxRetries, "retries", 3, "max repair attempts when gate fails")
 
 	return cmd
+}
+
+// buildRepairPrompt constructs a prompt that includes feedback for the model to fix issues.
+func buildRepairPrompt(originalPrompt, previousOutput string, result *gate.GateResult) string {
+	var feedback strings.Builder
+
+	feedback.WriteString("The previous implementation failed quality checks.\n\n")
+	feedback.WriteString("## Violations to Fix:\n")
+
+	for _, v := range result.Violations {
+		feedback.WriteString(fmt.Sprintf("- [%s] %s at %s: %s\n",
+			v.Severity, v.Rule, v.Location, v.Message))
+	}
+
+	if len(result.RepairHints) > 0 {
+		feedback.WriteString("\n## Repair Instructions:\n")
+		for _, hint := range result.RepairHints {
+			feedback.WriteString(fmt.Sprintf("- %s\n", hint))
+		}
+	}
+
+	feedback.WriteString("\n## CRITICAL REQUIREMENTS:\n")
+	feedback.WriteString("- Do NOT use TODO, FIXME, or placeholder comments\n")
+	feedback.WriteString("- Do NOT use panic(\"not implemented\") or stub implementations\n")
+	feedback.WriteString("- Do NOT use mock data like example.com, test@test.com, or sequential IDs\n")
+	feedback.WriteString("- Write the COMPLETE, WORKING implementation\n")
+
+	return fmt.Sprintf(`%s
+
+## Previous Output (Failed Quality Gate):
+%s
+
+Please rewrite the code to fix ALL issues listed above.`, feedback.String(), previousOutput)
 }
 
 // createCurator initializes the Curator with available sources.
