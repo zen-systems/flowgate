@@ -1,0 +1,37 @@
+# Model aliases - update these when new versions release
+aliases:
+  # OpenAI
+  fast: gpt-5.2-instant
+  fast-code: gpt-5.2-codex
+  thinking: gpt-5.2-thinking
+  math: gpt-5.2-pro
+
+  # Anthropic
+  quality: claude-sonnet-4-20250514
+  quality-code: claude-sonnet-4-20250514
+  deep: claude-opus-4-20250514
+
+  # Google
+  research: gemini-3-pro
+
+  # DeepSeek
+  cheap: deepseek-chat
+  cheap-code: deepseek-coder
+  reason: deepseek-reasoner
+
+# Provider model mappings (canonical names)
+providers:
+  anthropic:
+    - claude-sonnet-4-20250514
+    - claude-opus-4-20250514
+  openai:
+    - gpt-5.2-instant
+    - gpt-5.2-thinking
+    - gpt-5.2-codex
+    - gpt-5.2-pro
+  google:
+    - gemini-3-pro
+  deepseek:
+    - deepseek-chat
+    - deepseek-coder
+    - deepseek-reasoner

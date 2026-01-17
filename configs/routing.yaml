@@ -2,83 +2,83 @@ task_types:
   research:
     triggers: ["research", "find", "look up", "what is", "compare"]
     adapter: google
-    model: gemini-2.0-pro
+    model: research  # alias -> gemini-2.0-pro
 
   summarize:
     triggers: ["summarize", "tldr", "key points"]
     adapter: openai
-    model: gpt-5.2-thinking
+    model: thinking  # alias -> gpt-5.2-thinking
 
   outline:
     triggers: ["outline", "plan", "structure", "organize"]
     adapter: openai
-    model: gpt-5.2-instant
+    model: fast  # alias -> gpt-5.2-instant
 
   scaffold:
     triggers: ["scaffold", "boilerplate", "starter", "template"]
     adapter: openai
-    model: gpt-5.2-codex
+    model: fast-code  # alias -> gpt-5.2-codex
 
   implement:
     triggers: ["implement", "code", "write a function", "build", "create"]
     adapter: anthropic
-    model: claude-sonnet-4-20250514
+    model: quality-code  # alias -> claude-sonnet-4-20250514
 
   refactor:
     triggers: ["refactor", "large refactor", "migrate", "rewrite"]
     adapter: openai
-    model: gpt-5.2-codex
+    model: fast-code  # alias -> gpt-5.2-codex
 
   debug:
     triggers: ["debug", "fix", "error", "bug", "failing"]
     adapter: anthropic
-    model: claude-sonnet-4-20250514
+    model: quality  # alias -> claude-sonnet-4-20250514
 
   review:
     triggers: ["review", "check", "audit", "evaluate"]
     adapter: anthropic
-    model: claude-sonnet-4-20250514
+    model: quality  # alias -> claude-sonnet-4-20250514
 
   math:
     triggers: ["calculate", "equation", "formula", "proof", "derive"]
     adapter: openai
-    model: gpt-5.2-pro
+    model: math  # alias -> gpt-5.2-pro
 
   security_review:
     triggers: ["security", "vulnerability", "audit security", "penetration", "exploit"]
     adapter: anthropic
-    model: claude-opus-4-20250514
+    model: deep  # alias -> claude-opus-4-20250514
 
   architecture:
     triggers: ["architect", "system design", "design review", "architecture"]
     adapter: anthropic
-    model: claude-opus-4-20250514
+    model: deep  # alias -> claude-opus-4-20250514
 
   legal:
     triggers: ["contract", "legal", "compliance", "terms", "license"]
     adapter: anthropic
-    model: claude-opus-4-20250514
+    model: deep  # alias -> claude-opus-4-20250514
 
   complex_debug:
     triggers: ["race condition", "memory leak", "deadlock", "concurrency bug"]
     adapter: anthropic
-    model: claude-opus-4-20250514
+    model: deep  # alias -> claude-opus-4-20250514
 
   final_review:
     triggers: ["final review", "ship review", "pre-release", "production ready"]
     adapter: anthropic
-    model: claude-opus-4-20250514
+    model: deep  # alias -> claude-opus-4-20250514
 
   bulk_code:
     triggers: ["bulk code", "generate multiple", "batch generate", "mass create", "generate all"]
     adapter: deepseek
-    model: deepseek-coder
+    model: cheap-code  # alias -> deepseek-coder
 
   reasoning:
     triggers: ["reason", "think through", "step by step", "logical", "deduce", "infer"]
     adapter: deepseek
-    model: deepseek-reasoner
+    model: reason  # alias -> deepseek-reasoner
 
 default:
   adapter: anthropic
-  model: claude-sonnet-4-20250514
+  model: quality  # alias -> claude-sonnet-4-20250514

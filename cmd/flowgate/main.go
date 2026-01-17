@@ -17,6 +17,7 @@ var (
 	configFile  string
 	adapterFlag string
 	modelFlag   string
+	aliases     *config.ModelAliases
 )
 
 func main() {
@@ -65,7 +66,7 @@ or use --adapter and --model to override.`,
 				return fmt.Errorf("no adapters available - please set API keys")
 			}
 
-			r := router.NewRouter(adapters, cfg.RoutingConfig)
+			r := router.NewRouter(adapters, cfg.RoutingConfig, router.WithAliases(aliases))
 
 			var result *adapter.Adapter
 			var model string
@@ -77,7 +78,11 @@ or use --adapter and --model to override.`,
 				}
 				result = &a
 				if modelFlag != "" {
+					// Resolve alias if provided
 					model = modelFlag
+					if aliases != nil {
+						model = aliases.Resolve(model)
+					}
 				} else {
 					models := a.Models()
 					if len(models) > 0 {
@@ -155,53 +160,116 @@ func routesCmd() *cobra.Command {
 }
 
 func modelsCmd() *cobra.Command {
-	return &cobra.Command{
+	var resolveFlag bool
+	var validateFlag bool
+
+	cmd := &cobra.Command{
 		Use:   "models",
-		Short: "List available adapters and models",
+		Short: "List available adapters, models, and aliases",
+		Long: `Lists adapters and their available models.
+
+Use --resolve to show aliases and what they resolve to.
+Use --validate to check all aliases in routing.yaml resolve to valid models.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			adapters, err := createAdapters(cfg)
-			if err != nil {
-				return fmt.Errorf("failed to create adapters: %w", err)
+			// Handle --resolve flag
+			if resolveFlag {
+				return showAliases()
 			}
 
+			// Handle --validate flag
+			if validateFlag {
+				return validateAliases(cfg)
+			}
+
+			// Default: show providers and models from config
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ADAPTER\tMODELS")
+			fmt.Fprintln(w, "PROVIDER\tMODELS\tSTATUS")
 
-			// Sort adapter names for consistent output
-			var names []string
-			for name := range adapters {
-				names = append(names, name)
+			// Get provider list from aliases config
+			providers := aliases.ListProviders()
+			if len(providers) == 0 {
+				// Fall back to known providers
+				providers = []string{"anthropic", "deepseek", "google", "openai"}
 			}
-			sort.Strings(names)
 
-			for _, name := range names {
-				a := adapters[name]
-				models := ""
-				for i, m := range a.Models() {
-					if i > 0 {
-						models += ", "
-					}
-					models += m
+			for _, provider := range providers {
+				models := formatList(aliases.GetProviderModels(provider))
+				status := "no key"
+				if cfg.HasAdapter(provider) {
+					status = "ready"
 				}
-				fmt.Fprintf(w, "%s\t%s\n", name, models)
-			}
-
-			if len(adapters) == 0 {
-				fmt.Fprintln(os.Stderr, "\nNo adapters available. Set API keys:")
-				fmt.Fprintln(os.Stderr, "  ANTHROPIC_API_KEY - for Claude models")
-				fmt.Fprintln(os.Stderr, "  OPENAI_API_KEY    - for OpenAI models")
-				fmt.Fprintln(os.Stderr, "  GOOGLE_API_KEY    - for Gemini models")
-				fmt.Fprintln(os.Stderr, "  DEEPSEEK_API_KEY  - for DeepSeek models")
+				fmt.Fprintf(w, "%s\t%s\t%s\n", provider, models, status)
 			}
 
 			return w.Flush()
 		},
 	}
+
+	cmd.Flags().BoolVar(&resolveFlag, "resolve", false, "show aliases and what they resolve to")
+	cmd.Flags().BoolVar(&validateFlag, "validate", false, "check all aliases in routing.yaml resolve to valid models")
+
+	return cmd
+}
+
+func showAliases() error {
+	if aliases == nil {
+		fmt.Println("No model aliases configured.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ALIAS\tMODEL\tPROVIDER")
+
+	// Sort aliases for consistent output
+	aliasMap := aliases.ListAliases()
+	var aliasNames []string
+	for name := range aliasMap {
+		aliasNames = append(aliasNames, name)
+	}
+	sort.Strings(aliasNames)
+
+	for _, alias := range aliasNames {
+		model := aliasMap[alias]
+		provider := aliases.GetProviderForModel(model)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", alias, model, provider)
+	}
+
+	return w.Flush()
+}
+
+func validateAliases(cfg *config.Config) error {
+	if aliases == nil {
+		fmt.Println("No model aliases configured - nothing to validate.")
+		return nil
+	}
+
+	errors := aliases.ValidateRoutingConfig(cfg.RoutingConfig)
+	if len(errors) == 0 {
+		fmt.Println("All models in routing.yaml are valid.")
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "Found %d validation errors:\n", len(errors))
+	for _, err := range errors {
+		fmt.Fprintf(os.Stderr, "  - %s\n", err)
+	}
+	return fmt.Errorf("validation failed")
+}
+
+func formatList(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	result := items[0]
+	for i := 1; i < len(items); i++ {
+		result += ", " + items[i]
+	}
+	return result
 }
 
 func validateCmd() *cobra.Command {
@@ -235,10 +303,22 @@ func runCmd() *cobra.Command {
 }
 
 func loadConfig() (*config.Config, error) {
+	var cfg *config.Config
+	var err error
+
 	if configFile != "" {
-		return config.LoadWithRoutingFile(configFile)
+		cfg, err = config.LoadWithRoutingFile(configFile)
+	} else {
+		cfg, err = config.Load()
 	}
-	return config.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	// Load model aliases
+	aliases, _ = config.LoadAliasesWithFallback("configs/models.yaml")
+
+	return cfg, nil
 }
 
 func createAdapters(cfg *config.Config) (map[string]adapter.Adapter, error) {

@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/zen-systems/flowgate/pkg/adapter"
 	"github.com/zen-systems/flowgate/pkg/artifact"
@@ -26,27 +27,51 @@ type Router interface {
 
 // RouteInfo describes a routing rule.
 type RouteInfo struct {
-	TaskType string
-	Triggers []string
-	Adapter  string
-	Model    string
+	TaskType      string
+	Triggers      []string
+	Adapter       string
+	Model         string   // May be alias
+	ResolvedModel string   // Canonical model name
 }
 
 // DefaultRouter implements Router using pattern matching.
 type DefaultRouter struct {
 	adapters map[string]adapter.Adapter
+	aliases  *config.ModelAliases
 	rules    *RuleSet
 	config   *config.RoutingConfig
+	debug    bool
+}
+
+// RouterOption configures a DefaultRouter.
+type RouterOption func(*DefaultRouter)
+
+// WithAliases sets the model aliases for the router.
+func WithAliases(aliases *config.ModelAliases) RouterOption {
+	return func(r *DefaultRouter) {
+		r.aliases = aliases
+	}
+}
+
+// WithDebug enables debug logging.
+func WithDebug(debug bool) RouterOption {
+	return func(r *DefaultRouter) {
+		r.debug = debug
+	}
 }
 
 // NewRouter creates a new router with the given adapters and routing config.
-func NewRouter(adapters map[string]adapter.Adapter, cfg *config.RoutingConfig) *DefaultRouter {
+func NewRouter(adapters map[string]adapter.Adapter, cfg *config.RoutingConfig, opts ...RouterOption) *DefaultRouter {
 	rules := NewRuleSet(cfg)
-	return &DefaultRouter{
+	r := &DefaultRouter{
 		adapters: adapters,
 		rules:    rules,
 		config:   cfg,
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // Route determines the adapter and model for a prompt.
@@ -59,7 +84,22 @@ func (r *DefaultRouter) Route(prompt string) (adapter.Adapter, string) {
 		model = r.config.Default.Model
 	}
 
-	return a, model
+	// Resolve alias to canonical model name
+	resolvedModel := r.resolveModel(model)
+
+	if r.debug && model != resolvedModel {
+		log.Printf("[router] resolved alias %q -> %q", model, resolvedModel)
+	}
+
+	return a, resolvedModel
+}
+
+// resolveModel resolves a model alias to its canonical name.
+func (r *DefaultRouter) resolveModel(model string) string {
+	if r.aliases != nil {
+		return r.aliases.Resolve(model)
+	}
+	return model
 }
 
 // Send routes the prompt and generates a response.
@@ -83,11 +123,17 @@ func (r *DefaultRouter) GetRoutes() []RouteInfo {
 	var routes []RouteInfo
 	for name, taskType := range r.config.TaskTypes {
 		routes = append(routes, RouteInfo{
-			TaskType: name,
-			Triggers: taskType.Triggers,
-			Adapter:  taskType.Adapter,
-			Model:    taskType.Model,
+			TaskType:      name,
+			Triggers:      taskType.Triggers,
+			Adapter:       taskType.Adapter,
+			Model:         taskType.Model,
+			ResolvedModel: r.resolveModel(taskType.Model),
 		})
 	}
 	return routes
+}
+
+// GetAliases returns the model aliases, if configured.
+func (r *DefaultRouter) GetAliases() *config.ModelAliases {
+	return r.aliases
 }
