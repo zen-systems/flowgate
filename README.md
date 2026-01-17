@@ -51,7 +51,7 @@ flowgate ask --adapter openai --model gpt-5.2-codex "Scaffold a REST API"
 flowgate routes
 ```
 
-## Model Routing Philosophy
+## Architecture & Routing Logic
 
 Use fast/cheap models for volume work, quality models for integration and review, premium models for high-stakes decisions. Gate everything.
 
@@ -70,6 +70,55 @@ Use fast/cheap models for volume work, quality models for integration and review
 | Math, proofs | GPT-5.2 Pro | 100% on AIME 2025, best benchmark performance |
 | Bulk code generation | DeepSeek Coder | Aggressive pricing, gates catch issues anyway |
 | Complex reasoning | DeepSeek Reasoner | R1 competitive with o1 at fraction of cost |
+
+```mermaid
+graph LR
+    %% Core Nodes
+    Req([User Request]) --> Router{Semantic\nRouter}
+    
+    %% Routing Paths
+    Router -- "Research & Long Docs" --> Gem[Gemini 2.0 Pro]
+    
+    Router -- "Outlining & Schemas" --> GPT_I[GPT-5.2 Instant]
+    Router -- "Scaffolding & Refactor" --> GPT_C[GPT-5.2 Codex]
+    Router -- "Math & Proofs" --> GPT_P[GPT-5.2 Pro]
+    
+    Router -- "Implementation & Debugging" --> Sonnet[Claude Sonnet 4]
+    Router -- "Security & Architecture" --> Opus[Claude Opus 4]
+    
+    Router -- "Bulk Generation" --> DS_C[DeepSeek Coder]
+    Router -- "Complex Reasoning" --> DS_R[DeepSeek Reasoner]
+
+    %% Stylized Nodes with Metadata (The "Why")
+    style Gem fill:#e8f0fe,stroke:#1967d2,stroke-width:2px,color:#000
+    style GPT_I fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
+    style GPT_C fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
+    style GPT_P fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
+    style Sonnet fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
+    style Opus fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
+    style DS_C fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
+    style DS_R fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
+    
+    %% Legend/Grouping (Optional visual cue)
+    subgraph "Context & Synthesis"
+    Gem
+    end
+    
+    subgraph "Speed & Structure"
+    GPT_I
+    GPT_C
+    GPT_P
+    end
+    
+    subgraph "Nuance & Safety"
+    Sonnet
+    Opus
+    end
+
+    subgraph "Cost & Deep Thought"
+    DS_C
+    DS_R
+    end
 
 ## Quality Gates
 
