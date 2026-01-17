@@ -1,0 +1,63 @@
+# Example pipeline: Large codebase refactor
+# Phase 2: This pipeline will be fully executable
+
+name: large-refactor
+description: Multi-stage pipeline for large-scale refactoring
+
+stages:
+  - name: analyze
+    task_type: review
+    prompt: |
+      Analyze this codebase for refactoring:
+      {{.input}}
+
+      Identify:
+      - Code smells
+      - Duplicated logic
+      - Architectural issues
+      - Dependencies to update
+
+  - name: plan
+    task_type: outline
+    prompt: |
+      Based on this analysis:
+      {{.stages.analyze.output}}
+
+      Create a refactoring plan with:
+      - Ordered list of changes
+      - Risk assessment for each change
+      - Rollback strategies
+      - Testing requirements
+
+  - name: refactor
+    task_type: refactor
+    prompt: |
+      Following this plan:
+      {{.stages.plan.output}}
+
+      Perform the refactoring on:
+      {{.input}}
+
+      Make changes incrementally and maintain backwards compatibility where possible.
+    gates:
+      - hollowcheck
+    max_retries: 3
+    escalate_on: gate_failure
+
+  - name: verify
+    task_type: review
+    adapter: anthropic
+    model: claude-opus-4-20250514
+    prompt: |
+      Verify this refactoring:
+
+      Original:
+      {{.input}}
+
+      Refactored:
+      {{.stages.refactor.output}}
+
+      Confirm:
+      - Functional equivalence
+      - No regressions introduced
+      - Improved code quality

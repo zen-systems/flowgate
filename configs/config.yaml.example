@@ -1,0 +1,18 @@
+# Flowgate Configuration
+# Copy this file to ~/.flowgate/config.yaml and fill in your API keys.
+#
+# Environment variables take precedence over this file:
+#   ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY, DEEPSEEK_API_KEY
+
+api_keys:
+  # Anthropic API key for Claude models (claude-sonnet-4, claude-opus-4)
+  anthropic: ""
+
+  # OpenAI API key for GPT models (gpt-5.2-instant, gpt-5.2-thinking, etc.)
+  openai: ""
+
+  # Google API key for Gemini models (gemini-2.0-pro)
+  google: ""
+
+  # DeepSeek API key for DeepSeek models (deepseek-chat, deepseek-coder, deepseek-reasoner)
+  deepseek: ""

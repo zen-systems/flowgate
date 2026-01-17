@@ -1,0 +1,13 @@
+# Binaries
+flowgate
+*.exe
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Test coverage
+coverage.out

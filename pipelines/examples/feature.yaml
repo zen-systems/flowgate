@@ -1,0 +1,54 @@
+# Example pipeline: Implement a new feature
+# Phase 2: This pipeline will be fully executable
+
+name: feature-implementation
+description: Multi-stage pipeline for implementing a new feature
+
+stages:
+  - name: research
+    task_type: research
+    prompt: |
+      Research existing patterns and best practices for: {{.input}}
+      Focus on:
+      - Common implementation approaches
+      - Potential pitfalls
+      - Recommended libraries
+
+  - name: outline
+    task_type: outline
+    prompt: |
+      Based on the research:
+      {{.stages.research.output}}
+
+      Create an implementation outline for: {{.input}}
+      Include:
+      - File structure
+      - Key functions/classes
+      - Data flow
+
+  - name: implement
+    task_type: implement
+    prompt: |
+      Following this outline:
+      {{.stages.outline.output}}
+
+      Implement the feature: {{.input}}
+      Write clean, well-documented code.
+    gates:
+      - hollowcheck
+    max_retries: 2
+    escalate_on: gate_failure
+
+  - name: review
+    task_type: review
+    adapter: anthropic
+    model: claude-opus-4-20250514
+    prompt: |
+      Review this implementation:
+      {{.stages.implement.output}}
+
+      Check for:
+      - Correctness
+      - Performance issues
+      - Security concerns
+      - Code quality
