@@ -70,55 +70,41 @@ Use fast/cheap models for volume work, quality models for integration and review
 | Math, proofs | GPT-5.2 Pro | 100% on AIME 2025, best benchmark performance |
 | Bulk code generation | DeepSeek Coder | Aggressive pricing, gates catch issues anyway |
 | Complex reasoning | DeepSeek Reasoner | R1 competitive with o1 at fraction of cost |
-
 ```mermaid
-graph LR
-    %% Core Nodes
-    Req([User Request]) --> Router{"Semantic<br/>Router"}
-    
-    %% Routing Paths
-    Router -- "Research & Long Docs" --> Gem[Gemini 2.0 Pro]
-    
-    Router -- "Outlining & Schemas" --> GPT_I[GPT-5.2 Instant]
-    Router -- "Scaffolding & Refactor" --> GPT_C[GPT-5.2 Codex]
-    Router -- "Math & Proofs" --> GPT_P[GPT-5.2 Pro]
-    
-    Router -- "Implementation & Debugging" --> Sonnet[Claude Sonnet 4]
-    Router -- "Security & Architecture" --> Opus[Claude Opus 4]
-    
-    Router -- "Bulk Generation" --> DS_C[DeepSeek Coder]
-    Router -- "Complex Reasoning" --> DS_R[DeepSeek Reasoner]
+graph TD
+    %% Styling setup
+    classDef core fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#01579b;
+    classDef agent fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#1b5e20;
+    classDef external fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#4a148c,stroke-dasharray: 5 5;
+    classDef gate fill:#ffebee,stroke:#b71c1c,stroke-width:2px,color:#b71c1c;
 
-    %% Stylized Nodes
-    style Gem fill:#e8f0fe,stroke:#1967d2,stroke-width:2px,color:#000
-    style GPT_I fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
-    style GPT_C fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
-    style GPT_P fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#000
-    style Sonnet fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
-    style Opus fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
-    style DS_C fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
-    style DS_R fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
+    User(["User Input<br/>CLI/Pipeline"]) --> Router["Intelligent Router<br/>(Task Classification)"]
+    style Router core
+
+    Router -- "Standard Query" --> ModelSelect[Model Selection]
     
-    %% Grouping
-    subgraph "Context & Synthesis"
-    Gem
-    end
-    
-    subgraph "Speed & Structure"
-    GPT_I
-    GPT_C
-    GPT_P
-    end
-    
-    subgraph "Nuance & Safety"
-    Sonnet
-    Opus
+    %% The New Curator Path
+    Router -- "Deep Research<br/>(Complex/Contradictory)" --> Curator{"Curator Agent<br/>(Self-Correction Loop)"}
+    style Curator agent
+
+    subgraph "Curator Loop (Agentic RAG)"
+        Curator --> Plan[Analyze Needs]
+        Plan --> Fetch[Gather (Web/Local)]
+        Fetch --> Reconcile[Reconcile Conflicts]
+        Reconcile -- "Missing Info" --> Fetch
+        Reconcile -- "Ready" --> Context[Curated Context]
     end
 
-    subgraph "Cost & Deep Thought"
-    DS_C
-    DS_R
-    end
+    Context --> ModelSelect
+    ModelSelect --> API_M(("Model API"))
+    class API_M external
+
+    API_M --> Gate{"Quality Gate<br/>(Hollowcheck)"}
+    style Gate gate
+    
+    Gate -- "Pass" --> Final(["Final Output"])
+    Gate -- "Fail" --> Repair[Repair Loop]
+    Repair --> ModelSelect
 ```
 ## Quality Gates
 
