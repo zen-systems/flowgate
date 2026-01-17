@@ -81,18 +81,18 @@ graph TD
     User(["User Input<br/>CLI/Pipeline"]) --> Router["Intelligent Router<br/>(Task Classification)"]
     style Router core
 
-    Router -- "Standard Query" --> ModelSelect[Model Selection]
+    Router -- "Standard Query" --> ModelSelect["Model Selection"]
     
     %% The New Curator Path
     Router -- "Deep Research<br/>(Complex/Contradictory)" --> Curator{"Curator Agent<br/>(Self-Correction Loop)"}
     style Curator agent
 
     subgraph "Curator Loop (Agentic RAG)"
-        Curator --> Plan[Analyze Needs]
-        Plan --> Fetch[Gather (Web/Local)]
-        Fetch --> Reconcile[Reconcile Conflicts]
+        Curator --> Plan["Analyze Needs"]
+        Plan --> Fetch["Gather (Web/Local)"]
+        Fetch --> Reconcile["Reconcile Conflicts"]
         Reconcile -- "Missing Info" --> Fetch
-        Reconcile -- "Ready" --> Context[Curated Context]
+        Reconcile -- "Ready" --> Context["Curated Context"]
     end
 
     Context --> ModelSelect
@@ -103,7 +103,7 @@ graph TD
     style Gate gate
     
     Gate -- "Pass" --> Final(["Final Output"])
-    Gate -- "Fail" --> Repair[Repair Loop]
+    Gate -- "Fail" --> Repair["Repair Loop"]
     Repair --> ModelSelect
 ```
 ## Quality Gates
