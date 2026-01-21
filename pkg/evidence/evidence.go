@@ -43,14 +43,15 @@ type ApplyRecord struct {
 
 // GateRecord captures gate evaluation results.
 type GateRecord struct {
-	Name           string       `json:"name"`
-	Passed         bool         `json:"passed"`
-	Score          int          `json:"score"`
-	Violations     []Violation  `json:"violations,omitempty"`
-	RepairHints    []string     `json:"repair_hints,omitempty"`
-	Diagnostics    *Diagnostics `json:"diagnostics,omitempty"`
-	Error          string       `json:"error,omitempty"`
-	DurationMillis int64        `json:"duration_ms"`
+	Name           string          `json:"name"`
+	Passed         bool            `json:"passed"`
+	Score          int             `json:"score"`
+	Violations     []Violation     `json:"violations,omitempty"`
+	RepairHints    []string        `json:"repair_hints,omitempty"`
+	Kind           string          `json:"kind,omitempty"`
+	Diagnostics    json.RawMessage `json:"diagnostics,omitempty"`
+	Error          string          `json:"error,omitempty"`
+	DurationMillis int64           `json:"duration_ms"`
 }
 
 // Violation mirrors gate violation details.
@@ -60,16 +61,6 @@ type Violation struct {
 	Message    string `json:"message"`
 	Location   string `json:"location,omitempty"`
 	Suggestion string `json:"suggestion,omitempty"`
-}
-
-// Diagnostics captures command execution details.
-type Diagnostics struct {
-	Command  []string `json:"command"`
-	Workdir  string   `json:"workdir,omitempty"`
-	Stdout   string   `json:"stdout,omitempty"`
-	Stderr   string   `json:"stderr,omitempty"`
-	ExitCode int      `json:"exit_code"`
-	Duration string   `json:"duration"`
 }
 
 // AttemptRecord captures each attempt to satisfy gates.

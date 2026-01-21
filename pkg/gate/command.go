@@ -2,6 +2,8 @@ package gate
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"time"
@@ -11,12 +13,13 @@ import (
 
 // CommandDiagnostics captures execution details for a command gate.
 type CommandDiagnostics struct {
-	Command  []string      `json:"command"`
-	Workdir  string        `json:"workdir,omitempty"`
-	Stdout   string        `json:"stdout,omitempty"`
-	Stderr   string        `json:"stderr,omitempty"`
-	ExitCode int           `json:"exit_code"`
-	Duration time.Duration `json:"duration"`
+	Command        []string `json:"command"`
+	Workdir        string   `json:"workdir,omitempty"`
+	Stdout         string   `json:"stdout,omitempty"`
+	Stderr         string   `json:"stderr,omitempty"`
+	ExitCode       int      `json:"exit_code"`
+	DurationMillis int64    `json:"duration_ms"`
+	Error          string   `json:"error,omitempty"`
 }
 
 // CommandGate executes a local command as a gate.
@@ -50,8 +53,8 @@ func (g *CommandGate) Name() string {
 }
 
 // Evaluate runs the command and returns a GateResult with diagnostics.
-func (g *CommandGate) Evaluate(_ *artifact.Artifact) (*GateResult, error) {
-	cmd := exec.Command(g.command[0], g.command[1:]...)
+func (g *CommandGate) Evaluate(ctx context.Context, _ *artifact.Artifact) (*GateResult, error) {
+	cmd := exec.CommandContext(ctx, g.command[0], g.command[1:]...)
 	if g.workdir != "" {
 		cmd.Dir = g.workdir
 	}
@@ -69,23 +72,35 @@ func (g *CommandGate) Evaluate(_ *artifact.Artifact) (*GateResult, error) {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else {
-			return nil, fmt.Errorf("command gate failed to run: %w", err)
+			result := g.resultFromDiagnostics(CommandDiagnostics{
+				Command:        append([]string{}, g.command...),
+				Workdir:        g.workdir,
+				Stdout:         stdout.String(),
+				Stderr:         stderr.String(),
+				ExitCode:       exitCode,
+				DurationMillis: duration.Milliseconds(),
+				Error:          err.Error(),
+			}, false)
+			result.Violations = []Violation{
+				{
+					Rule:     "command_failed",
+					Severity: "error",
+					Message:  "command failed to start",
+				},
+			}
+			return result, nil
 		}
 	}
 
 	passed := exitCode == 0
-	result := &GateResult{
-		Passed: passed,
-		Score:  exitCode,
-		Diagnostics: &CommandDiagnostics{
-			Command:  append([]string{}, g.command...),
-			Workdir:  g.workdir,
-			Stdout:   stdout.String(),
-			Stderr:   stderr.String(),
-			ExitCode: exitCode,
-			Duration: duration,
-		},
-	}
+	result := g.resultFromDiagnostics(CommandDiagnostics{
+		Command:        append([]string{}, g.command...),
+		Workdir:        g.workdir,
+		Stdout:         stdout.String(),
+		Stderr:         stderr.String(),
+		ExitCode:       exitCode,
+		DurationMillis: duration.Milliseconds(),
+	}, passed)
 
 	if !passed {
 		result.Violations = []Violation{
@@ -101,4 +116,18 @@ func (g *CommandGate) Evaluate(_ *artifact.Artifact) (*GateResult, error) {
 	}
 
 	return result, nil
+}
+
+func (g *CommandGate) resultFromDiagnostics(diag CommandDiagnostics, passed bool) *GateResult {
+	payload, _ := json.Marshal(diag)
+	score := 0
+	if !passed {
+		score = 100
+	}
+	return &GateResult{
+		Passed:      passed,
+		Score:       score,
+		Kind:        "command",
+		Diagnostics: payload,
+	}
 }

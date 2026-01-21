@@ -2,6 +2,7 @@ package gate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,15 +27,15 @@ type HollowCheckConfig struct {
 
 // hollowcheckOutput represents the JSON output from hollowcheck CLI.
 type hollowcheckOutput struct {
-	Version      string               `json:"version"`
-	Path         string               `json:"path"`
-	Contract     string               `json:"contract"`
-	Score        int                  `json:"score"`
-	Grade        string               `json:"grade"`
-	Threshold    int                  `json:"threshold"`
-	Passed       bool                 `json:"passed"`
-	FilesScanned int                  `json:"files_scanned"`
-	Violations   []hollowcheckIssue   `json:"violations"`
+	Version      string                 `json:"version"`
+	Path         string                 `json:"path"`
+	Contract     string                 `json:"contract"`
+	Score        int                    `json:"score"`
+	Grade        string                 `json:"grade"`
+	Threshold    int                    `json:"threshold"`
+	Passed       bool                   `json:"passed"`
+	FilesScanned int                    `json:"files_scanned"`
+	Violations   []hollowcheckIssue     `json:"violations"`
 	Breakdown    []hollowcheckBreakdown `json:"breakdown"`
 }
 
@@ -76,27 +77,27 @@ func (g *HollowCheckGate) Name() string {
 }
 
 // Evaluate runs hollowcheck on the artifact content.
-func (g *HollowCheckGate) Evaluate(a *artifact.Artifact) (*GateResult, error) {
-	// Create temp directory for artifact content
+func (g *HollowCheckGate) Evaluate(ctx context.Context, a *artifact.Artifact) (*GateResult, error) {
 	tempDir, err := os.MkdirTemp("", "flowgate-hollowcheck-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Write artifact content to temp directory
 	if err := g.writeArtifact(tempDir, a); err != nil {
 		return nil, fmt.Errorf("failed to write artifact: %w", err)
 	}
 
-	// Run hollowcheck
-	output, err := g.runHollowcheck(tempDir)
+	output, err := g.runHollowcheck(ctx, tempDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run hollowcheck: %w", err)
 	}
 
-	// Convert to GateResult
-	return g.toGateResult(output), nil
+	result := g.toGateResult(output)
+	payload, _ := json.Marshal(output)
+	result.Kind = "hollowcheck"
+	result.Diagnostics = payload
+	return result, nil
 }
 
 // writeArtifact writes the artifact content to the temp directory.
@@ -104,7 +105,6 @@ func (g *HollowCheckGate) Evaluate(a *artifact.Artifact) (*GateResult, error) {
 func (g *HollowCheckGate) writeArtifact(dir string, a *artifact.Artifact) error {
 	content := a.Content
 
-	// Check if content contains file markers (e.g., "// file: path/to/file.go")
 	if files := parseMultiFileContent(content); len(files) > 0 {
 		for path, fileContent := range files {
 			fullPath := filepath.Join(dir, path)
@@ -118,7 +118,6 @@ func (g *HollowCheckGate) writeArtifact(dir string, a *artifact.Artifact) error 
 		return nil
 	}
 
-	// Single file - determine extension from metadata or default to .go
 	ext := ".go"
 	if a.Metadata != nil {
 		if e, ok := a.Metadata["extension"]; ok {
@@ -140,9 +139,7 @@ func parseMultiFileContent(content string) map[string]string {
 	var currentContent strings.Builder
 
 	for _, line := range lines {
-		// Check for file markers
 		if path := extractFilePath(line); path != "" {
-			// Save previous file if exists
 			if currentFile != "" {
 				files[currentFile] = strings.TrimSuffix(currentContent.String(), "\n")
 			}
@@ -157,7 +154,6 @@ func parseMultiFileContent(content string) map[string]string {
 		}
 	}
 
-	// Save last file
 	if currentFile != "" {
 		files[currentFile] = strings.TrimSuffix(currentContent.String(), "\n")
 	}
@@ -169,7 +165,6 @@ func parseMultiFileContent(content string) map[string]string {
 func extractFilePath(line string) string {
 	line = strings.TrimSpace(line)
 
-	// Common file marker patterns
 	prefixes := []string{
 		"// file:",
 		"// File:",
@@ -182,7 +177,6 @@ func extractFilePath(line string) string {
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(line, prefix) {
 			path := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-			// Remove trailing comment closers
 			path = strings.TrimSuffix(path, "*/")
 			path = strings.TrimSuffix(path, "-->")
 			return strings.TrimSpace(path)
@@ -193,27 +187,24 @@ func extractFilePath(line string) string {
 }
 
 // runHollowcheck executes the hollowcheck CLI and returns parsed output.
-func (g *HollowCheckGate) runHollowcheck(dir string) (*hollowcheckOutput, error) {
+func (g *HollowCheckGate) runHollowcheck(ctx context.Context, dir string) (*hollowcheckOutput, error) {
 	args := []string{"lint", dir, "--format", "json"}
 
 	if g.contractPath != "" {
 		args = append(args, "--contract", g.contractPath)
 	}
 
-	cmd := exec.Command(g.binaryPath, args...)
+	cmd := exec.CommandContext(ctx, g.binaryPath, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// Run command - hollowcheck may exit non-zero on violations
 	err := cmd.Run()
 
-	// Try to parse output regardless of exit code
 	var output hollowcheckOutput
 	if stdout.Len() > 0 {
 		if parseErr := json.Unmarshal(stdout.Bytes(), &output); parseErr != nil {
-			// If we can't parse and there was an error, return the error
 			if err != nil {
 				return nil, fmt.Errorf("hollowcheck failed: %v, stderr: %s", err, stderr.String())
 			}
@@ -222,12 +213,10 @@ func (g *HollowCheckGate) runHollowcheck(dir string) (*hollowcheckOutput, error)
 		return &output, nil
 	}
 
-	// No stdout - check for error
 	if err != nil {
 		return nil, fmt.Errorf("hollowcheck failed: %v, stderr: %s", err, stderr.String())
 	}
 
-	// Empty output means no issues (score 0 = no penalty points)
 	return &hollowcheckOutput{Passed: true, Score: 0}, nil
 }
 
@@ -249,14 +238,12 @@ func (g *HollowCheckGate) toGateResult(output *hollowcheckOutput) *GateResult {
 			Location: location,
 		})
 
-		// Generate repair hint
 		hint := generateRepairHint(issue)
 		if hint != "" {
 			repairHints = append(repairHints, hint)
 		}
 	}
 
-	// Use hollowcheck score directly (lower is better: 0 = perfect, higher = more issues)
 	if output.Passed {
 		return NewPassingResult(output.Score)
 	}
@@ -274,10 +261,8 @@ func generateRepairHint(issue hollowcheckIssue) string {
 	ruleLower := strings.ToLower(issue.Rule)
 	msgLower := strings.ToLower(issue.Message)
 
-	// Generate specific hints based on rule type and message content
 	switch {
 	case ruleLower == "forbidden_pattern":
-		// Extract pattern info from message like: forbidden pattern "TODO" found: Work-in-progress marker
 		if strings.Contains(msgLower, "todo") {
 			return fmt.Sprintf("Remove TODO comment at %s", location)
 		}

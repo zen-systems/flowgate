@@ -1,13 +1,16 @@
 package gate
 
 import (
+	"context"
+	"encoding/json"
+
 	"github.com/zen-systems/flowgate/pkg/artifact"
 )
 
 // Gate defines the interface for quality gates.
 type Gate interface {
 	// Evaluate checks an artifact against quality criteria.
-	Evaluate(artifact *artifact.Artifact) (*GateResult, error)
+	Evaluate(ctx context.Context, artifact *artifact.Artifact) (*GateResult, error)
 
 	// Name returns the gate identifier.
 	Name() string
@@ -15,11 +18,12 @@ type Gate interface {
 
 // GateResult contains the outcome of a gate evaluation.
 type GateResult struct {
-	Passed      bool                `json:"passed"`
-	Score       int                 `json:"score"`
-	Violations  []Violation         `json:"violations,omitempty"`
-	RepairHints []string            `json:"repair_hints,omitempty"`
-	Diagnostics *CommandDiagnostics `json:"diagnostics,omitempty"`
+	Passed      bool            `json:"passed"`
+	Score       int             `json:"score"`
+	Violations  []Violation     `json:"violations,omitempty"`
+	RepairHints []string        `json:"repair_hints,omitempty"`
+	Kind        string          `json:"kind,omitempty"` // "command", "hollowcheck", ...
+	Diagnostics json.RawMessage `json:"diagnostics,omitempty"`
 }
 
 // Violation describes a specific quality issue.

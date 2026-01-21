@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -206,7 +207,7 @@ func runStage(
 		applyResult, applyErr := applyIfNeeded(stage, workspacePath, art)
 		lastApplyResult = applyResult
 
-		gateResults, gateErr := evaluateGates(stage, pipeline, art, workspacePath)
+		gateResults, gateErr := evaluateGates(ctx, stage, pipeline, art, workspacePath)
 		lastGateResults = gateResults
 
 		succeeded := applyErr == nil && gateErr == nil
@@ -284,7 +285,7 @@ func applyIfNeeded(stage *Stage, workspacePath string, art *artifact.Artifact) (
 	return result, nil
 }
 
-func evaluateGates(stage *Stage, pipeline *Pipeline, art *artifact.Artifact, workspacePath string) ([]GateResult, error) {
+func evaluateGates(ctx context.Context, stage *Stage, pipeline *Pipeline, art *artifact.Artifact, workspacePath string) ([]GateResult, error) {
 	if len(stage.Gates) == 0 {
 		return nil, nil
 	}
@@ -297,7 +298,7 @@ func evaluateGates(stage *Stage, pipeline *Pipeline, art *artifact.Artifact, wor
 	var results []GateResult
 	for _, gateInstance := range gateInstances {
 		start := time.Now()
-		res, err := gateInstance.Evaluate(art)
+		res, err := gateInstance.Evaluate(ctx, art)
 		results = append(results, GateResult{
 			Name:     gateInstance.Name(),
 			Result:   res,
@@ -428,14 +429,20 @@ func prepareEvidenceWriter(baseDir, workspacePath string) (*evidence.Writer, err
 
 func writeGateLogs(writer *evidence.Writer, stageName string, results []GateResult) error {
 	for _, result := range results {
-		if result.Result == nil || result.Result.Diagnostics == nil {
+		if result.Result == nil || result.Result.Kind != "command" || len(result.Result.Diagnostics) == 0 {
 			continue
 		}
+
+		var diag gate.CommandDiagnostics
+		if err := json.Unmarshal(result.Result.Diagnostics, &diag); err != nil {
+			continue
+		}
+
 		logContent := fmt.Sprintf("command: %s\nexit: %d\n\nstdout:\n%s\n\nstderr:\n%s\n",
-			strings.Join(result.Result.Diagnostics.Command, " "),
-			result.Result.Diagnostics.ExitCode,
-			result.Result.Diagnostics.Stdout,
-			result.Result.Diagnostics.Stderr,
+			strings.Join(diag.Command, " "),
+			diag.ExitCode,
+			diag.Stdout,
+			diag.Stderr,
 		)
 		if err := writer.WriteGateLog(stageName, result.Name, logContent); err != nil {
 			return err
@@ -457,6 +464,8 @@ func evidenceGateRecords(results []GateResult) []evidence.GateRecord {
 		if result.Result != nil {
 			record.Passed = result.Result.Passed
 			record.Score = result.Result.Score
+			record.Kind = result.Result.Kind
+			record.Diagnostics = result.Result.Diagnostics
 			for _, v := range result.Result.Violations {
 				record.Violations = append(record.Violations, evidence.Violation{
 					Rule:       v.Rule,
@@ -467,16 +476,6 @@ func evidenceGateRecords(results []GateResult) []evidence.GateRecord {
 				})
 			}
 			record.RepairHints = append(record.RepairHints, result.Result.RepairHints...)
-			if diag := result.Result.Diagnostics; diag != nil {
-				record.Diagnostics = &evidence.Diagnostics{
-					Command:  diag.Command,
-					Workdir:  diag.Workdir,
-					Stdout:   diag.Stdout,
-					Stderr:   diag.Stderr,
-					ExitCode: diag.ExitCode,
-					Duration: diag.Duration.String(),
-				}
-			}
 		}
 		records = append(records, record)
 	}
