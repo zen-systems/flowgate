@@ -1,0 +1,20 @@
+{
+  "name": "research",
+  "adapter": "mock",
+  "model": "mock-1",
+  "prompt": "Research existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n",
+  "output": "mock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n",
+  "artifacts": {
+    "hash": "43692b2192c33b12",
+    "text": "mock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n"
+  },
+  "duration_ms": 0,
+  "attempts": [
+    {
+      "attempt": 1,
+      "prompt_hash": "7a814b7a6f9b39f743b91df1ed1c14533ba03105f2bcf5dd864387ef822fb5a6",
+      "succeeded": true,
+      "duration_ms": 0
+    }
+  ]
+}

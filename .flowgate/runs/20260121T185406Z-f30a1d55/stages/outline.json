@@ -1,0 +1,20 @@
+{
+  "name": "outline",
+  "adapter": "mock",
+  "model": "mock-1",
+  "prompt": "Based on the research:\nmock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n\n\nCreate an implementation outline for: add a simple config loader\nInclude:\n- File structure\n- Key functions/classes\n- Data flow\n",
+  "output": "mock response:\nBased on the research:\nmock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n\n\nCreate an implementation outline for: add a simple config loader\nInclude:\n- File structure\n- Key functions/classes\n- Data flow\n",
+  "artifacts": {
+    "hash": "fc138566de3a7e8e",
+    "text": "mock response:\nBased on the research:\nmock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n\n\nCreate an implementation outline for: add a simple config loader\nInclude:\n- File structure\n- Key functions/classes\n- Data flow\n"
+  },
+  "duration_ms": 0,
+  "attempts": [
+    {
+      "attempt": 1,
+      "prompt_hash": "d58daa45cfb051719a6c62bceb48f4c7578974a4f7711d3fb2853fcad4fa84ba",
+      "succeeded": true,
+      "duration_ms": 0
+    }
+  ]
+}

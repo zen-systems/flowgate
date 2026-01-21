@@ -1,0 +1,58 @@
+{
+  "name": "implement",
+  "adapter": "mock",
+  "model": "mock-1",
+  "prompt": "Following this outline:\nmock response:\nBased on the research:\nmock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n\n\nCreate an implementation outline for: add a simple config loader\nInclude:\n- File structure\n- Key functions/classes\n- Data flow\n\n\nImplement the feature: add a simple config loader\nWrite clean, well-documented code.\n",
+  "output": "mock response:\nFollowing this outline:\nmock response:\nBased on the research:\nmock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n\n\nCreate an implementation outline for: add a simple config loader\nInclude:\n- File structure\n- Key functions/classes\n- Data flow\n\n\nImplement the feature: add a simple config loader\nWrite clean, well-documented code.\n",
+  "artifacts": {
+    "hash": "db877e42b576c0d7",
+    "text": "mock response:\nFollowing this outline:\nmock response:\nBased on the research:\nmock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n\n\nCreate an implementation outline for: add a simple config loader\nInclude:\n- File structure\n- Key functions/classes\n- Data flow\n\n\nImplement the feature: add a simple config loader\nWrite clean, well-documented code.\n"
+  },
+  "gate_results": [
+    {
+      "name": "go_test",
+      "passed": true,
+      "score": 0,
+      "diagnostics": {
+        "command": [
+          "go",
+          "test",
+          "./..."
+        ],
+        "workdir": ".",
+        "stdout": "?   \tgithub.com/zen-systems/flowgate/cmd/flowgate\t[no test files]\n?   \tgithub.com/zen-systems/flowgate/pkg/adapter\t[no test files]\n?   \tgithub.com/zen-systems/flowgate/pkg/artifact\t[no test files]\nok  \tgithub.com/zen-systems/flowgate/pkg/config\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/curator\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/curator/sources\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/evidence\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/gate\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/pipeline\t(cached)\n?   \tgithub.com/zen-systems/flowgate/pkg/repair\t[no test files]\nok  \tgithub.com/zen-systems/flowgate/pkg/router\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/workspace\t(cached)\n",
+        "exit_code": 0,
+        "duration": "349.128458ms"
+      },
+      "duration_ms": 349
+    }
+  ],
+  "duration_ms": 349,
+  "attempts": [
+    {
+      "attempt": 1,
+      "prompt_hash": "99e7659c407063f91abfa73aa2e4ecd48feeef061a41b0a29e06a5a19a4bc08c",
+      "gate_results": [
+        {
+          "name": "go_test",
+          "passed": true,
+          "score": 0,
+          "diagnostics": {
+            "command": [
+              "go",
+              "test",
+              "./..."
+            ],
+            "workdir": ".",
+            "stdout": "?   \tgithub.com/zen-systems/flowgate/cmd/flowgate\t[no test files]\n?   \tgithub.com/zen-systems/flowgate/pkg/adapter\t[no test files]\n?   \tgithub.com/zen-systems/flowgate/pkg/artifact\t[no test files]\nok  \tgithub.com/zen-systems/flowgate/pkg/config\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/curator\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/curator/sources\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/evidence\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/gate\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/pipeline\t(cached)\n?   \tgithub.com/zen-systems/flowgate/pkg/repair\t[no test files]\nok  \tgithub.com/zen-systems/flowgate/pkg/router\t(cached)\nok  \tgithub.com/zen-systems/flowgate/pkg/workspace\t(cached)\n",
+            "exit_code": 0,
+            "duration": "349.128458ms"
+          },
+          "duration_ms": 349
+        }
+      ],
+      "succeeded": true,
+      "duration_ms": 349
+    }
+  ]
+}

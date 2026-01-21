@@ -1,6 +1,6 @@
 # flowgate
 
-AI orchestration system with intelligent routing and quality gates.
+AI orchestration system with intelligent routing, quality gates, and evidence bundles.
 
 ## The Problem
 
@@ -12,9 +12,9 @@ AI orchestration system with intelligent routing and quality gates.
 ## The Solution
 
 - **Automatic routing** based on task type detection
-- **Quality gates** using hollowcheck integration
+- **Quality gates** using hollowcheck and command-based tooling
 - **Repair loops** that feed failures back to models
-- **Multi-model pipelines** for complex workflows
+- **Multi-stage pipelines** with evidence bundles per run
 
 ## Quick Start
 
@@ -51,93 +51,24 @@ flowgate ask --adapter openai --model gpt-5.2-codex "Scaffold a REST API"
 flowgate routes
 ```
 
-## Architecture & Routing Logic
+## Pipelines
 
-Use fast/cheap models for volume work, quality models for integration and review, premium models for high-stakes decisions. Gate everything.
+Run the example pipeline locally (uses the mock adapter and command gates):
 
-| Task Type | Model | Why |
-|-----------|-------|-----|
-| Research, long documents | Gemini 2.0 Pro | Best-in-class long context (1M+), strong at synthesis |
-| Outlining, schema design | GPT-5.2 Instant | Fast, reliable JSON/schema compliance |
-| Scaffolding, boilerplate | GPT-5.2 Codex | Purpose-built for code generation, 400K context |
-| Large refactors, migrations | GPT-5.2 Codex | 400K context holds entire codebases |
-| Implementation, integration | Claude Sonnet 4 | Refuses to cut corners, nuanced integration |
-| Debugging | Claude Sonnet 4 | Understands intent, not just pattern matching |
-| Code review | Claude Sonnet 4 | Catches subtle issues, maintains consistency |
-| Security review | Claude Opus 4 | High-stakes decisions need best reasoning |
-| Architecture, system design | Claude Opus 4 | Complex tradeoffs require deep reasoning |
-| Legal, compliance | Claude Opus 4 | Can't afford mistakes, nuance matters |
-| Math, proofs | GPT-5.2 Pro | 100% on AIME 2025, best benchmark performance |
-| Bulk code generation | DeepSeek Coder | Aggressive pricing, gates catch issues anyway |
-| Complex reasoning | DeepSeek Reasoner | R1 competitive with o1 at fraction of cost |
-```mermaid
-graph TD
-    %% Styling setup
-    classDef core fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#01579b;
-    classDef agent fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#1b5e20;
-    classDef external fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#4a148c,stroke-dasharray: 5 5;
-    classDef gate fill:#ffebee,stroke:#b71c1c,stroke-width:2px,color:#b71c1c;
-
-    User(["User Input<br/>CLI/Pipeline"]) --> Router["Intelligent Router<br/>(Task Classification)"]
-    style Router core
-
-    Router -- "Standard Query" --> ModelSelect["Model Selection"]
-    
-    %% The New Curator Path
-    Router -- "Deep Research<br/>(Complex/Contradictory)" --> Curator{"Curator Agent<br/>(Self-Correction Loop)"}
-    style Curator agent
-
-    subgraph "Curator Loop (Agentic RAG)"
-        Curator --> Plan["Analyze Needs"]
-        Plan --> Fetch["Gather (Web/Local)"]
-        Fetch --> Reconcile["Reconcile Conflicts"]
-        Reconcile -- "Missing Info" --> Fetch
-        Reconcile -- "Ready" --> Context["Curated Context"]
-    end
-
-    Context --> ModelSelect
-    ModelSelect --> API_M(("Model API"))
-    class API_M external
-
-    API_M --> Gate{"Quality Gate<br/>(Hollowcheck)"}
-    style Gate gate
-    
-    Gate -- "Pass" --> Final(["Final Output"])
-    Gate -- "Fail" --> Repair["Repair Loop"]
-    Repair --> ModelSelect
-```
-## Quality Gates
-
-Flowgate integrates with [hollowcheck](https://github.com/zen-systems/hollowcheck) to enforce quality:
-
-```yaml
-# In pipeline definition
-stages:
-  - name: implement
-    adapter: openai
-    model: gpt-5.2-codex
-    gate:
-      type: hollowcheck
-      contract: contracts/implementation.yaml
-      threshold: 25
-    on_fail:
-      strategy: repair
-      max_attempts: 2
+```bash
+flowgate run -f pipelines/examples/feature.yaml -i "add a simple config loader"
 ```
 
-When a gate fails, flowgate:
-
-1. Extracts violations (TODOs, stubs, mock data)
-2. Generates a repair prompt with specific fixes needed
-3. Sends back to the model (or escalates to a different model)
-4. Re-evaluates until passing or max attempts reached
-
-Example repair hints generated from violations:
+Evidence bundles are written to:
 
 ```
-- Remove TODO comment at service.go:47
-- Replace panic("not implemented") with real implementation at handler.go:23
-- Replace placeholder/mock data at config.go:15
+.flowgate/runs/<run-id>/
+```
+
+You can override the base directory with `--out`:
+
+```bash
+flowgate run -f pipelines/examples/refactor.yaml -i "refactor router" --out /tmp/flowgate-runs
 ```
 
 ## Pipeline Example
@@ -145,44 +76,50 @@ Example repair hints generated from violations:
 ```yaml
 name: feature-implementation
 
+workspace:
+  path: .
+
+gates:
+  go_test:
+    type: command
+    command: ["go", "test", "./..."]
+    workdir: .
+
 stages:
   - name: research
-    prompt: "Research best practices for {{ .input }}"
-    # Auto-routes to Gemini
+    adapter: mock
+    model: mock-1
+    prompt: "Research best practices for {{ .Input }}"
 
   - name: outline
-    prompt: "Create implementation outline based on: {{ .artifacts.research }}"
-    # Auto-routes to GPT-5.2
+    adapter: mock
+    model: mock-1
+    prompt: "Create an outline based on: {{ .Artifacts.research.Text }}"
 
   - name: implement
-    adapter: anthropic
-    model: claude-sonnet-4-20250514
-    prompt: "Implement this outline: {{ .artifacts.outline }}"
-    gate:
-      type: hollowcheck
-      contract: contracts/implementation.yaml
-    on_fail:
-      strategy: escalate
-      escalate_to:
-        adapter: anthropic
-        model: claude-opus-4-20250514
-
-  - name: review
-    adapter: anthropic
-    model: claude-sonnet-4-20250514
-    prompt: |
-      Review this implementation:
-      {{ .artifacts.implement }}
-
-      Check for correctness, performance, and security issues.
+    adapter: mock
+    model: mock-1
+    prompt: "Implement this outline: {{ .Artifacts.outline.Text }}"
+    gates:
+      - go_test
+    max_retries: 1
 ```
 
-Run pipelines:
+## Gates and Repair Loops
 
-```bash
-flowgate run pipelines/feature.yaml --input "rate limiter with token bucket"
-flowgate validate pipelines/feature.yaml  # Check without executing
-```
+- Gates run in order for each stage.
+- If a gate fails or errors, the stage fails closed by default.
+- If `max_retries` is set, a repair prompt is generated using gate feedback and the stage is retried.
+- Command gates capture stdout, stderr, exit code, and duration in the evidence bundle.
+
+## Evidence Bundle
+
+Each run records:
+
+- run metadata (timestamp, pipeline path, input hash)
+- per-stage prompt and output (or hashes if large)
+- gate results and command outputs
+- repair attempts and outcomes
 
 ## Configuration
 
@@ -198,100 +135,5 @@ api_keys:
 
 ### Custom Routing (`~/.flowgate/routing.yaml`)
 
-```yaml
-task_types:
-  research:
-    triggers: ["research", "find", "look up", "what is", "compare"]
-    adapter: google
-    model: gemini-2.0-pro
+See `configs/routing.yaml` for an example routing configuration.
 
-  implement:
-    triggers: ["implement", "code", "write a function", "build", "create"]
-    adapter: anthropic
-    model: claude-sonnet-4-20250514
-
-  security_review:
-    triggers: ["security", "vulnerability", "audit security", "penetration"]
-    adapter: anthropic
-    model: claude-opus-4-20250514
-
-  bulk_code:
-    triggers: ["bulk code", "generate multiple", "batch generate"]
-    adapter: deepseek
-    model: deepseek-coder
-
-  reasoning:
-    triggers: ["reason", "think through", "step by step", "logical"]
-    adapter: deepseek
-    model: deepseek-reasoner
-
-default:
-  adapter: anthropic
-  model: claude-sonnet-4-20250514
-```
-
-## CLI Reference
-
-```bash
-# Route and execute
-flowgate ask "Research tree-sitter Go bindings"
-
-# Override routing
-flowgate ask --adapter openai --model gpt-5.2-codex "Scaffold a REST API"
-
-# Show routing rules
-flowgate routes
-
-# List available models (based on configured API keys)
-flowgate models
-
-# Execute pipeline
-flowgate run pipelines/feature.yaml --input requirements.md
-
-# Validate pipeline without executing
-flowgate validate pipelines/feature.yaml
-
-# Use custom routing config
-flowgate --config ./custom-routing.yaml ask "Research something"
-```
-
-## Why This Exists
-
-AI-generated code often satisfies the surface of a prompt while deferring actual implementation. Models produce "technically complete" outputs with TODOs, stub functions, and mock data.
-
-The labs will fix model collapse. Nobody's fixing the quality problem except you.
-
-Flowgate + hollowcheck creates an assembly line: fast models for volume, quality models for integration, gates to keep everyone honest. The models are interchangeable. The quality standards aren't.
-
-## Project Structure
-
-```
-flowgate/
-├── cmd/flowgate/main.go      # CLI entry point
-├── pkg/
-│   ├── adapter/              # LLM provider adapters
-│   │   ├── anthropic.go      # Claude API
-│   │   ├── openai.go         # OpenAI API
-│   │   ├── google.go         # Gemini API
-│   │   └── deepseek.go       # DeepSeek API
-│   ├── router/               # Task routing
-│   │   ├── router.go         # Router interface
-│   │   └── rules.go          # Pattern matching
-│   ├── gate/                 # Quality gates
-│   │   └── hollowcheck.go    # Hollowcheck integration
-│   ├── pipeline/             # Multi-stage pipelines
-│   ├── repair/               # Repair prompt generation
-│   └── config/               # Configuration loading
-├── configs/
-│   ├── routing.yaml          # Default routing rules
-│   └── config.yaml.example   # Example config
-└── pipelines/examples/       # Example pipelines
-```
-
-## Related Projects
-
-- [hollowcheck](https://github.com/zen-systems/hollowcheck) - Quality gate for AI-generated code
-
-## License
-
-MIT

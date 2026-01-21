@@ -1,15 +1,25 @@
 # Example pipeline: Large codebase refactor
-# Phase 2: This pipeline will be fully executable
 
 name: large-refactor
 description: Multi-stage pipeline for large-scale refactoring
 
+workspace:
+  path: .
+
+gates:
+  go_test:
+    type: command
+    command: ["go", "test", "./..."]
+    workdir: .
+
 stages:
   - name: analyze
     task_type: review
+    adapter: mock
+    model: mock-1
     prompt: |
       Analyze this codebase for refactoring:
-      {{.input}}
+      {{ .Input }}
 
       Identify:
       - Code smells
@@ -19,9 +29,11 @@ stages:
 
   - name: plan
     task_type: outline
+    adapter: mock
+    model: mock-1
     prompt: |
       Based on this analysis:
-      {{.stages.analyze.output}}
+      {{ .Artifacts.analyze.Text }}
 
       Create a refactoring plan with:
       - Ordered list of changes
@@ -31,31 +43,32 @@ stages:
 
   - name: refactor
     task_type: refactor
+    adapter: mock
+    model: mock-1
     prompt: |
       Following this plan:
-      {{.stages.plan.output}}
+      {{ .Artifacts.plan.Text }}
 
       Perform the refactoring on:
-      {{.input}}
+      {{ .Input }}
 
       Make changes incrementally and maintain backwards compatibility where possible.
     gates:
-      - hollowcheck
-    max_retries: 3
-    escalate_on: gate_failure
+      - go_test
+    max_retries: 1
 
   - name: verify
     task_type: review
-    adapter: anthropic
-    model: claude-opus-4-20250514
+    adapter: mock
+    model: mock-1
     prompt: |
       Verify this refactoring:
 
       Original:
-      {{.input}}
+      {{ .Input }}
 
       Refactored:
-      {{.stages.refactor.output}}
+      {{ .Artifacts.refactor.Text }}
 
       Confirm:
       - Functional equivalence

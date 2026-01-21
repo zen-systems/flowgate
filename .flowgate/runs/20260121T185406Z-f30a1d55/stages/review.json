@@ -1,0 +1,20 @@
+{
+  "name": "review",
+  "adapter": "mock",
+  "model": "mock-1",
+  "prompt": "Review this implementation:\nmock response:\nFollowing this outline:\nmock response:\nBased on the research:\nmock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n\n\nCreate an implementation outline for: add a simple config loader\nInclude:\n- File structure\n- Key functions/classes\n- Data flow\n\n\nImplement the feature: add a simple config loader\nWrite clean, well-documented code.\n\n\nCheck for:\n- Correctness\n- Performance issues\n- Security concerns\n- Code quality\n",
+  "output": "mock response:\nReview this implementation:\nmock response:\nFollowing this outline:\nmock response:\nBased on the research:\nmock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n\n\nCreate an implementation outline for: add a simple config loader\nInclude:\n- File structure\n- Key functions/classes\n- Data flow\n\n\nImplement the feature: add a simple config loader\nWrite clean, well-documented code.\n\n\nCheck for:\n- Correctness\n- Performance issues\n- Security concerns\n- Code quality\n",
+  "artifacts": {
+    "hash": "445e47e471b6200d",
+    "text": "mock response:\nReview this implementation:\nmock response:\nFollowing this outline:\nmock response:\nBased on the research:\nmock response:\nResearch existing patterns and best practices for: add a simple config loader\nFocus on:\n- Common implementation approaches\n- Potential pitfalls\n- Recommended libraries\n\n\nCreate an implementation outline for: add a simple config loader\nInclude:\n- File structure\n- Key functions/classes\n- Data flow\n\n\nImplement the feature: add a simple config loader\nWrite clean, well-documented code.\n\n\nCheck for:\n- Correctness\n- Performance issues\n- Security concerns\n- Code quality\n"
+  },
+  "duration_ms": 0,
+  "attempts": [
+    {
+      "attempt": 1,
+      "prompt_hash": "4154951feaa73f6bb461a8952f441b6a485a7d178f6b287a372238140539fafc",
+      "succeeded": true,
+      "duration_ms": 0
+    }
+  ]
+}

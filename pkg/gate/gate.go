@@ -15,19 +15,20 @@ type Gate interface {
 
 // GateResult contains the outcome of a gate evaluation.
 type GateResult struct {
-	Passed      bool        `json:"passed"`
-	Score       int         `json:"score"`
-	Violations  []Violation `json:"violations,omitempty"`
-	RepairHints []string    `json:"repair_hints,omitempty"`
+	Passed      bool                `json:"passed"`
+	Score       int                 `json:"score"`
+	Violations  []Violation         `json:"violations,omitempty"`
+	RepairHints []string            `json:"repair_hints,omitempty"`
+	Diagnostics *CommandDiagnostics `json:"diagnostics,omitempty"`
 }
 
 // Violation describes a specific quality issue.
 type Violation struct {
-	Rule        string `json:"rule"`
-	Severity    string `json:"severity"` // "error", "warning", "info"
-	Message     string `json:"message"`
-	Location    string `json:"location,omitempty"`
-	Suggestion  string `json:"suggestion,omitempty"`
+	Rule       string `json:"rule"`
+	Severity   string `json:"severity"` // "error", "warning", "info"
+	Message    string `json:"message"`
+	Location   string `json:"location,omitempty"`
+	Suggestion string `json:"suggestion,omitempty"`
 }
 
 // NewPassingResult creates a result indicating the gate passed.

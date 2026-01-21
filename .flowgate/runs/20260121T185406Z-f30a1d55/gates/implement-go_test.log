@@ -1,0 +1,20 @@
+command: go test ./...
+exit: 0
+
+stdout:
+?   	github.com/zen-systems/flowgate/cmd/flowgate	[no test files]
+?   	github.com/zen-systems/flowgate/pkg/adapter	[no test files]
+?   	github.com/zen-systems/flowgate/pkg/artifact	[no test files]
+ok  	github.com/zen-systems/flowgate/pkg/config	(cached)
+ok  	github.com/zen-systems/flowgate/pkg/curator	(cached)
+ok  	github.com/zen-systems/flowgate/pkg/curator/sources	(cached)
+ok  	github.com/zen-systems/flowgate/pkg/evidence	(cached)
+ok  	github.com/zen-systems/flowgate/pkg/gate	(cached)
+ok  	github.com/zen-systems/flowgate/pkg/pipeline	(cached)
+?   	github.com/zen-systems/flowgate/pkg/repair	[no test files]
+ok  	github.com/zen-systems/flowgate/pkg/router	(cached)
+ok  	github.com/zen-systems/flowgate/pkg/workspace	(cached)
+
+
+stderr:
+

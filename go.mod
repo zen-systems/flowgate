@@ -1,6 +1,6 @@
 module github.com/zen-systems/flowgate
 
-go 1.24.11
+go 1.24
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.19.0
@@ -25,7 +25,6 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	github.com/zen-systems/hollowcheck v0.0.0-20260117034121-9c96ecf501d5 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/net v0.41.0 // indirect

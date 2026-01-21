@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,9 +32,12 @@ func TestTavilySource_Name(t *testing.T) {
 }
 
 func TestTavilySource_Query(t *testing.T) {
-	// Create mock server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("failed to listen for httptest server: %v", err)
+	}
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			t.Errorf("Expected POST, got %s", r.Method)
 		}
@@ -42,7 +46,6 @@ func TestTavilySource_Query(t *testing.T) {
 			t.Error("Expected Content-Type: application/json")
 		}
 
-		// Verify include_answer is false
 		var req map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("Failed to decode request: %v", err)
@@ -56,7 +59,6 @@ func TestTavilySource_Query(t *testing.T) {
 			t.Error("search_depth should be 'advanced' for full content")
 		}
 
-		// Return mock response
 		resp := map[string]interface{}{
 			"results": []map[string]interface{}{
 				{
@@ -77,24 +79,23 @@ func TestTavilySource_Query(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}))
+	server.Listener = listener
+	server.Start()
 	defer server.Close()
 
-	// Create source pointing to mock server
 	ts := &TavilySource{
 		apiKey:     "test-key",
 		httpClient: server.Client(),
 		maxResults: 5,
 	}
 
-	// Verify source is available with key
 	if !ts.Available() {
 		t.Error("Source should be available with API key")
 	}
 
-	// Test without API key
 	tsNoKey := NewWebSource()
 	tsNoKey.apiKey = ""
-	_, err := tsNoKey.Query(context.Background(), "test query")
+	_, err = tsNoKey.Query(context.Background(), "test query")
 	if err == nil {
 		t.Error("Query should fail without API key")
 	}

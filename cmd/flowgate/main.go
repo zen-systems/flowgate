@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"sort"
@@ -11,11 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/zen-systems/flowgate/pkg/adapter"
-	"github.com/zen-systems/flowgate/pkg/artifact"
 	"github.com/zen-systems/flowgate/pkg/config"
 	"github.com/zen-systems/flowgate/pkg/curator"
 	"github.com/zen-systems/flowgate/pkg/curator/sources"
-	"github.com/zen-systems/flowgate/pkg/gate"
+	"github.com/zen-systems/flowgate/pkg/pipeline"
 	"github.com/zen-systems/flowgate/pkg/router"
 )
 
@@ -31,8 +31,8 @@ func main() {
 		Use:   "flowgate",
 		Short: "AI orchestration system with intelligent routing and quality gates",
 		Long: `Flowgate is an AI orchestration system that intelligently routes prompts
-to the most appropriate LLM provider based on task type, and enforces
-quality gates on outputs.`,
+	to the most appropriate LLM provider based on task type, and enforces
+	quality gates on outputs.`,
 	}
 
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "path to routing config file")
@@ -57,15 +57,15 @@ func askCmd() *cobra.Command {
 		Use:   "ask [prompt]",
 		Short: "Send a prompt to the appropriate LLM",
 		Long: `Routes the prompt to the best LLM based on task type detection,
-or use --adapter and --model to override.
+	or use --adapter and --model to override.
 
-Use --deep for complex queries that benefit from context curation.
-The curator will analyze your query, gather relevant information from
-multiple sources, and synthesize an optimal context before responding.
+	Use --deep for complex queries that benefit from context curation.
+	The curator will analyze your query, gather relevant information from
+	multiple sources, and synthesize an optimal context before responding.
 
-Use --gate to enable quality gates with automatic repair loops.
-If the output fails quality checks, the model will be prompted to fix
-the issues and regenerate (up to --retries attempts).`,
+	Use --gate to enable quality gates with automatic repair loops.
+	If the output fails quality checks, the model will be prompted to fix
+	the issues and regenerate (up to --retries attempts).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prompt := args[0]
@@ -80,10 +80,6 @@ the issues and regenerate (up to --retries attempts).`,
 				return fmt.Errorf("failed to create adapters: %w", err)
 			}
 
-			if len(adapters) == 0 {
-				return fmt.Errorf("no adapters available - please set API keys")
-			}
-
 			r := router.NewRouter(adapters, cfg.RoutingConfig, router.WithAliases(aliases))
 
 			var targetAdapter adapter.Adapter
@@ -96,7 +92,6 @@ the issues and regenerate (up to --retries attempts).`,
 				}
 				targetAdapter = a
 				if modelFlag != "" {
-					// Resolve alias if provided
 					model = modelFlag
 					if aliases != nil {
 						model = aliases.Resolve(model)
@@ -115,7 +110,6 @@ the issues and regenerate (up to --retries attempts).`,
 				return fmt.Errorf("no adapter available")
 			}
 
-			// Wrap with Curator if --deep flag is set
 			var finalAdapter adapter.Adapter = targetAdapter
 			if deepFlag {
 				cur, err := createCurator(targetAdapter, cfg)
@@ -128,60 +122,36 @@ the issues and regenerate (up to --retries attempts).`,
 				fmt.Fprintf(os.Stderr, "Routing to %s/%s\n", targetAdapter.Name(), model)
 			}
 
-			// Initialize quality gate if requested
-			var qualityGate gate.Gate
+			p := &pipeline.Pipeline{
+				Name: "ask",
+				Stages: []*pipeline.Stage{
+					{
+						Name:       "ask",
+						Adapter:    finalAdapter.Name(),
+						Model:      model,
+						Prompt:     "{{ .Input }}",
+						MaxRetries: maxRetries,
+					},
+				},
+				Adapters: map[string]adapter.Adapter{finalAdapter.Name(): finalAdapter},
+			}
+
 			if gateFlag != "" {
-				qualityGate = gate.NewHollowCheckGate("", gateFlag)
-				fmt.Fprintf(os.Stderr, "Quality gate enabled: %s\n", qualityGate.Name())
+				p.Gates = map[string]pipeline.GateDefinition{
+					"hollowcheck": {
+						Type:         "hollowcheck",
+						ContractPath: gateFlag,
+					},
+				}
+				p.Stages[0].Gates = []string{"hollowcheck"}
 			}
 
-			// Generate with optional repair loop
-			var finalArtifact *artifact.Artifact
-			currentPrompt := prompt
-
-			for attempt := 1; attempt <= maxRetries; attempt++ {
-				if attempt > 1 {
-					fmt.Fprintf(os.Stderr, "Attempt %d/%d: Repairing output...\n", attempt, maxRetries)
-				}
-
-				// Generate
-				art, err := finalAdapter.Generate(context.Background(), model, currentPrompt)
-				if err != nil {
-					return fmt.Errorf("generation failed: %w", err)
-				}
-				finalArtifact = art
-
-				// Skip gate check if no gate configured
-				if qualityGate == nil {
-					break
-				}
-
-				// Check quality
-				result, err := qualityGate.Evaluate(art)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: Gate check failed: %v\n", err)
-					break // Fail open if gate breaks
-				}
-
-				if result.Passed {
-					fmt.Fprintf(os.Stderr, "Quality gate passed (hollowness: %d%%)\n", result.Score)
-					break
-				}
-
-				// Gate failed
-				fmt.Fprintf(os.Stderr, "Quality gate failed (hollowness: %d%%, %d violations)\n",
-					result.Score, len(result.Violations))
-
-				if attempt == maxRetries {
-					fmt.Fprintf(os.Stderr, "Max retries reached. Final output did not pass gate.\n")
-					break
-				}
-
-				// Construct repair prompt
-				currentPrompt = buildRepairPrompt(prompt, art.Content, result)
+			result, err := pipeline.Run(context.Background(), p, pipeline.RunOptions{Input: prompt})
+			if err != nil {
+				return err
 			}
 
-			fmt.Println(finalArtifact.Content)
+			fmt.Println(result.Stages["ask"].Artifact.Content)
 			return nil
 		},
 	}
@@ -195,47 +165,13 @@ the issues and regenerate (up to --retries attempts).`,
 	return cmd
 }
 
-// buildRepairPrompt constructs a prompt that includes feedback for the model to fix issues.
-func buildRepairPrompt(originalPrompt, previousOutput string, result *gate.GateResult) string {
-	var feedback strings.Builder
-
-	feedback.WriteString("The previous implementation failed quality checks.\n\n")
-	feedback.WriteString("## Violations to Fix:\n")
-
-	for _, v := range result.Violations {
-		feedback.WriteString(fmt.Sprintf("- [%s] %s at %s: %s\n",
-			v.Severity, v.Rule, v.Location, v.Message))
-	}
-
-	if len(result.RepairHints) > 0 {
-		feedback.WriteString("\n## Repair Instructions:\n")
-		for _, hint := range result.RepairHints {
-			feedback.WriteString(fmt.Sprintf("- %s\n", hint))
-		}
-	}
-
-	feedback.WriteString("\n## CRITICAL REQUIREMENTS:\n")
-	feedback.WriteString("- Do NOT use TODO, FIXME, or placeholder comments\n")
-	feedback.WriteString("- Do NOT use panic(\"not implemented\") or stub implementations\n")
-	feedback.WriteString("- Do NOT use mock data like example.com, test@test.com, or sequential IDs\n")
-	feedback.WriteString("- Write the COMPLETE, WORKING implementation\n")
-
-	return fmt.Sprintf(`%s
-
-## Previous Output (Failed Quality Gate):
-%s
-
-Please rewrite the code to fix ALL issues listed above.`, feedback.String(), previousOutput)
-}
-
 // createCurator initializes the Curator with available sources.
 func createCurator(targetAdapter adapter.Adapter, cfg *config.Config) (*curator.Curator, error) {
-	// Build curator options based on available resources
 	opts := []curator.CuratorOption{
 		curator.WithConfig(curator.CuratorConfig{
 			TargetAdapter:       targetAdapter.Name(),
-			TargetModel:         "", // Will use model from Generate call
-			AnalysisModel:       "", // Will use same as target
+			TargetModel:         "",
+			AnalysisModel:       "",
 			ContextBudget:       100000,
 			ConfidenceThreshold: 0.7,
 			EnabledSources:      []curator.SourceType{curator.SourceFilesystem, curator.SourceMemory, curator.SourceArtifacts},
@@ -248,26 +184,19 @@ func createCurator(targetAdapter adapter.Adapter, cfg *config.Config) (*curator.
 		}),
 	}
 
-	// Add filesystem source (current directory)
 	cwd, err := os.Getwd()
 	if err == nil {
 		opts = append(opts, curator.WithFilesystemSource(cwd))
 	}
 
-	// Add memory source for conversation tracking
 	opts = append(opts, curator.WithMemorySource(sources.NewMemorySource()))
-
-	// Add artifact source for tracking outputs
 	opts = append(opts, curator.WithArtifactSource(sources.NewArtifactSource()))
 
-	// Add web source if Tavily API key is available
 	if os.Getenv("TAVILY_API_KEY") != "" {
 		opts = append(opts, curator.WithWebSource())
 		log.Println("[curator] Web search enabled (Tavily)")
 	}
 
-	// Use the target adapter for both generation and analysis
-	// This keeps it simple - use the same model for everything
 	return curator.NewCurator(targetAdapter, targetAdapter, opts...)
 }
 
@@ -284,7 +213,6 @@ func routesCmd() *cobra.Command {
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "TASK TYPE\tADAPTER\tMODEL\tTRIGGERS")
 
-			// Sort task types for consistent output
 			var taskTypes []string
 			for name := range cfg.RoutingConfig.TaskTypes {
 				taskTypes = append(taskTypes, name)
@@ -322,39 +250,34 @@ func modelsCmd() *cobra.Command {
 		Short: "List available adapters, models, and aliases",
 		Long: `Lists adapters and their available models.
 
-Use --resolve to show aliases and what they resolve to.
-Use --validate to check all aliases in routing.yaml resolve to valid models.`,
+	Use --resolve to show aliases and what they resolve to.
+	Use --validate to check all aliases in routing.yaml resolve to valid models.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			// Handle --resolve flag
 			if resolveFlag {
 				return showAliases()
 			}
 
-			// Handle --validate flag
 			if validateFlag {
 				return validateAliases(cfg)
 			}
 
-			// Default: show providers and models from config
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "PROVIDER\tMODELS\tSTATUS")
 
-			// Get provider list from aliases config
 			providers := aliases.ListProviders()
 			if len(providers) == 0 {
-				// Fall back to known providers
-				providers = []string{"anthropic", "deepseek", "google", "openai"}
+				providers = []string{"anthropic", "deepseek", "google", "openai", "mock"}
 			}
 
 			for _, provider := range providers {
 				models := formatList(aliases.GetProviderModels(provider))
 				status := "no key"
-				if cfg.HasAdapter(provider) {
+				if cfg.HasAdapter(provider) || provider == "mock" {
 					status = "ready"
 				}
 				fmt.Fprintf(w, "%s\t%s\t%s\n", provider, models, status)
@@ -379,7 +302,6 @@ func showAliases() error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ALIAS\tMODEL\tPROVIDER")
 
-	// Sort aliases for consistent output
 	aliasMap := aliases.ListAliases()
 	var aliasNames []string
 	for name := range aliasMap {
@@ -430,28 +352,81 @@ func validateCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "validate [pipeline.yaml]",
 		Short: "Validate a pipeline manifest",
-		Long:  "Phase 2: Validates pipeline YAML without executing.",
+		Long:  "Validates pipeline YAML without executing.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Pipeline validation is not yet implemented (phase 2)")
+			p, err := pipeline.LoadManifest(args[0])
+			if err != nil {
+				return err
+			}
+			if err := p.Validate(); err != nil {
+				return err
+			}
+			fmt.Println("Pipeline manifest is valid.")
 			return nil
 		},
 	}
 }
 
 func runCmd() *cobra.Command {
+	var pipelineFile string
+	var inputFlag string
+	var workspaceFlag string
+	var outFlag string
+
 	cmd := &cobra.Command{
-		Use:   "run [pipeline.yaml]",
+		Use:   "run",
 		Short: "Execute a pipeline",
-		Long:  "Phase 2: Runs a pipeline with the specified input.",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Runs a pipeline with the specified input.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Pipeline execution is not yet implemented (phase 2)")
+			if pipelineFile == "" {
+				return fmt.Errorf("pipeline file is required")
+			}
+
+			input := inputFlag
+			if input == "" {
+				data, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("failed to read stdin: %w", err)
+				}
+				input = strings.TrimSpace(string(data))
+			}
+
+			p, err := pipeline.LoadManifest(pipelineFile)
+			if err != nil {
+				return err
+			}
+
+			cfg, err := loadConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			adapters, err := createAdapters(cfg)
+			if err != nil {
+				return fmt.Errorf("failed to create adapters: %w", err)
+			}
+			p.Adapters = adapters
+
+			result, err := pipeline.Run(context.Background(), p, pipeline.RunOptions{
+				Input:         input,
+				WorkspacePath: workspaceFlag,
+				EvidenceDir:   outFlag,
+				PipelinePath:  pipelineFile,
+			})
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(os.Stderr, "Run complete. Evidence: %s\n", result.EvidenceDir)
 			return nil
 		},
 	}
 
-	cmd.Flags().String("input", "", "input file for the pipeline")
+	cmd.Flags().StringVarP(&pipelineFile, "file", "f", "", "pipeline manifest path (required)")
+	cmd.Flags().StringVarP(&inputFlag, "input", "i", "", "input string for the pipeline (defaults to stdin)")
+	cmd.Flags().StringVar(&workspaceFlag, "workspace", "", "workspace path for apply/gates")
+	cmd.Flags().StringVar(&outFlag, "out", "", "evidence output base directory")
 
 	return cmd
 }
@@ -469,7 +444,6 @@ func loadConfig() (*config.Config, error) {
 		return nil, err
 	}
 
-	// Load model aliases
 	aliases, _ = config.LoadAliasesWithFallback("configs/models.yaml")
 
 	return cfg, nil
@@ -509,6 +483,8 @@ func createAdapters(cfg *config.Config) (map[string]adapter.Adapter, error) {
 		}
 		adapters["deepseek"] = a
 	}
+
+	adapters["mock"] = adapter.NewMockAdapter()
 
 	return adapters, nil
 }

@@ -1,7 +1,8 @@
 package pipeline
 
+import "fmt"
+
 // Stage represents a single step in a pipeline.
-// Phase 2: Full implementation with retry and escalation.
 type Stage struct {
 	Name       string   `yaml:"name"`
 	TaskType   string   `yaml:"task_type"`
@@ -10,12 +11,11 @@ type Stage struct {
 	Prompt     string   `yaml:"prompt"`
 	Gates      []string `yaml:"gates,omitempty"`
 	MaxRetries int      `yaml:"max_retries,omitempty"`
+	Apply      bool     `yaml:"apply,omitempty"`
 	EscalateOn string   `yaml:"escalate_on,omitempty"`
 }
 
-// Execute runs the stage.
-// Phase 2: Implements execution with gate checks and retry logic.
-func (s *Stage) Execute(input string) (string, error) {
-	// Stub implementation
-	return "", nil
+// Execute runs a stage directly. Prefer running via the pipeline runner.
+func (s *Stage) Execute(_ string) (string, error) {
+	return "", fmt.Errorf("stage execution requires pipeline runner")
 }

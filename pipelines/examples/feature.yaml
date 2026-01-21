@@ -1,14 +1,24 @@
 # Example pipeline: Implement a new feature
-# Phase 2: This pipeline will be fully executable
 
 name: feature-implementation
 description: Multi-stage pipeline for implementing a new feature
 
+workspace:
+  path: .
+
+gates:
+  go_test:
+    type: command
+    command: ["go", "test", "./..."]
+    workdir: .
+
 stages:
   - name: research
     task_type: research
+    adapter: mock
+    model: mock-1
     prompt: |
-      Research existing patterns and best practices for: {{.input}}
+      Research existing patterns and best practices for: {{ .Input }}
       Focus on:
       - Common implementation approaches
       - Potential pitfalls
@@ -16,11 +26,13 @@ stages:
 
   - name: outline
     task_type: outline
+    adapter: mock
+    model: mock-1
     prompt: |
       Based on the research:
-      {{.stages.research.output}}
+      {{ .Artifacts.research.Text }}
 
-      Create an implementation outline for: {{.input}}
+      Create an implementation outline for: {{ .Input }}
       Include:
       - File structure
       - Key functions/classes
@@ -28,24 +40,25 @@ stages:
 
   - name: implement
     task_type: implement
+    adapter: mock
+    model: mock-1
     prompt: |
       Following this outline:
-      {{.stages.outline.output}}
+      {{ .Artifacts.outline.Text }}
 
-      Implement the feature: {{.input}}
+      Implement the feature: {{ .Input }}
       Write clean, well-documented code.
     gates:
-      - hollowcheck
-    max_retries: 2
-    escalate_on: gate_failure
+      - go_test
+    max_retries: 1
 
   - name: review
     task_type: review
-    adapter: anthropic
-    model: claude-opus-4-20250514
+    adapter: mock
+    model: mock-1
     prompt: |
       Review this implementation:
-      {{.stages.implement.output}}
+      {{ .Artifacts.implement.Text }}
 
       Check for:
       - Correctness
