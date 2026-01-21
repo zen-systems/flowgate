@@ -1,10 +1,13 @@
 package evidence
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -24,9 +27,13 @@ type StageRecord struct {
 	Adapter        string            `json:"adapter"`
 	Model          string            `json:"model"`
 	Prompt         string            `json:"prompt,omitempty"`
+	PromptRef      string            `json:"prompt_ref,omitempty"`
 	PromptHash     string            `json:"prompt_hash,omitempty"`
+	PromptLen      int               `json:"prompt_len,omitempty"`
 	Output         string            `json:"output,omitempty"`
+	OutputRef      string            `json:"output_ref,omitempty"`
 	OutputHash     string            `json:"output_hash,omitempty"`
+	OutputLen      int               `json:"output_len,omitempty"`
 	Artifacts      map[string]string `json:"artifacts,omitempty"`
 	GateResults    []GateRecord      `json:"gate_results,omitempty"`
 	ApplyResult    *ApplyRecord      `json:"apply_result,omitempty"`
@@ -67,6 +74,12 @@ type Violation struct {
 type AttemptRecord struct {
 	Attempt        int          `json:"attempt"`
 	PromptHash     string       `json:"prompt_hash,omitempty"`
+	PromptRef      string       `json:"prompt_ref,omitempty"`
+	OutputRef      string       `json:"output_ref,omitempty"`
+	OutputHash     string       `json:"output_hash,omitempty"`
+	OutputLen      int          `json:"output_len,omitempty"`
+	WorkspaceUsed  string       `json:"workspace_used,omitempty"`
+	WorkspaceMode  string       `json:"workspace_mode,omitempty"`
 	GateResults    []GateRecord `json:"gate_results,omitempty"`
 	ApplyError     string       `json:"apply_error,omitempty"`
 	Succeeded      bool         `json:"succeeded"`
@@ -89,13 +102,16 @@ func NewWriter(baseDir, runID string) (*Writer, error) {
 	}
 
 	runDir := filepath.Join(baseDir, runID)
-	if err := os.MkdirAll(runDir, 0755); err != nil {
+	if err := os.MkdirAll(runDir, 0700); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(runDir, "stages"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(runDir, "stages"), 0700); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(runDir, "gates"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(runDir, "gates"), 0700); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Join(runDir, "blobs"), 0700); err != nil {
 		return nil, err
 	}
 
@@ -124,7 +140,52 @@ func (w *Writer) WriteGateLog(stageName, gateName, content string) error {
 		return fmt.Errorf("stage name and gate name are required")
 	}
 	path := filepath.Join(w.runDir, "gates", fmt.Sprintf("%s-%s.log", stageName, gateName))
-	return os.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0600)
+}
+
+// WriteBlob stores content in the blob store and returns a relative reference.
+func (w *Writer) WriteBlob(kind string, content []byte) (ref string, sha string, err error) {
+	sanitized := sanitizeKind(kind)
+	sum := sha256.Sum256(content)
+	sha = hex.EncodeToString(sum[:])
+	filename := fmt.Sprintf("%s-%s.txt", sanitized, sha)
+	ref = filepath.ToSlash(filepath.Join("blobs", filename))
+	path := filepath.Join(w.runDir, ref)
+
+	if _, err := os.Stat(path); err == nil {
+		return ref, sha, nil
+	} else if !os.IsNotExist(err) {
+		return "", "", err
+	}
+
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		return "", "", err
+	}
+
+	return ref, sha, nil
+}
+
+func sanitizeKind(kind string) string {
+	if kind == "" {
+		return "blob"
+	}
+
+	var sb strings.Builder
+	for _, r := range strings.ToLower(kind) {
+		switch {
+		case r >= 'a' && r <= 'z':
+			sb.WriteRune(r)
+		case r >= '0' && r <= '9':
+			sb.WriteRune(r)
+		case r == '_' || r == '-':
+			sb.WriteRune(r)
+		}
+	}
+
+	if sb.Len() == 0 {
+		return "blob"
+	}
+	return sb.String()
 }
 
 func writeJSON(path string, value any) error {
@@ -132,5 +193,5 @@ func writeJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }

@@ -65,10 +65,24 @@ Evidence bundles are written to:
 .flowgate/runs/<run-id>/
 ```
 
+By default, stages with `apply: true` run in a temp workspace; use `--apply` to persist changes:
+
+```bash
+flowgate run -f pipelines/examples/feature.yaml -i "add a simple config loader" --apply
+```
+
 You can override the base directory with `--out`:
 
 ```bash
 flowgate run -f pipelines/examples/refactor.yaml -i "refactor router" --out /tmp/flowgate-runs
+```
+
+## Attestations
+
+Generate a v0 attestation JSON from an existing run:
+
+```bash
+flowgate attest --run .flowgate/runs/<run-id> --stage implement --out /tmp/attestation.json
 ```
 
 ## Pipeline Example
@@ -84,6 +98,8 @@ gates:
     type: command
     command: ["go", "test", "./..."]
     workdir: .
+    allowed_commands: ["go test"]
+    deny_shell: true
 
 stages:
   - name: research
@@ -109,8 +125,9 @@ stages:
 
 - Gates run in order for each stage.
 - If a gate fails or errors, the stage fails closed by default.
-- If `max_retries` is set, a repair prompt is generated using gate feedback and the stage is retried.
-- Command gates capture stdout, stderr, exit code, and duration in the evidence bundle.
+  - If `max_retries` is set, a repair prompt is generated using gate feedback and the stage is retried.
+  - Command gates capture stdout, stderr, exit code, and duration in the evidence bundle.
+  - Command gates can restrict execution with `allowed_commands` and `deny_shell` (default true).
 
 ## Evidence Bundle
 
@@ -136,4 +153,3 @@ api_keys:
 ### Custom Routing (`~/.flowgate/routing.yaml`)
 
 See `configs/routing.yaml` for an example routing configuration.
-

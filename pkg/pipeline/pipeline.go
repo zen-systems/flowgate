@@ -28,11 +28,21 @@ type Workspace struct {
 
 // GateDefinition defines a gate in the manifest.
 type GateDefinition struct {
-	Type         string   `yaml:"type"`
-	Command      []string `yaml:"command,omitempty"`
-	Workdir      string   `yaml:"workdir,omitempty"`
-	BinaryPath   string   `yaml:"binary_path,omitempty"`
-	ContractPath string   `yaml:"contract_path,omitempty"`
+	Type            string            `yaml:"type"`
+	Command         []string          `yaml:"command,omitempty"`
+	AllowedCommands []string          `yaml:"allowed_commands,omitempty"`
+	DenyShell       *bool             `yaml:"deny_shell,omitempty"`
+	Capability      string            `yaml:"capability,omitempty"`
+	Templates       []CommandTemplate `yaml:"templates,omitempty"`
+	Workdir         string            `yaml:"workdir,omitempty"`
+	BinaryPath      string            `yaml:"binary_path,omitempty"`
+	ContractPath    string            `yaml:"contract_path,omitempty"`
+}
+
+// CommandTemplate defines an allowed command template.
+type CommandTemplate struct {
+	Exec string   `yaml:"exec"`
+	Args []string `yaml:"args,omitempty"`
 }
 
 // Run executes the pipeline with the given input using configured adapters.

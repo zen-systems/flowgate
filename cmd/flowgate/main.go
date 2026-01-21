@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/zen-systems/flowgate/pkg/adapter"
+	"github.com/zen-systems/flowgate/pkg/attest"
 	"github.com/zen-systems/flowgate/pkg/config"
 	"github.com/zen-systems/flowgate/pkg/curator"
 	"github.com/zen-systems/flowgate/pkg/curator/sources"
@@ -42,6 +44,8 @@ func main() {
 	rootCmd.AddCommand(modelsCmd())
 	rootCmd.AddCommand(validateCmd())
 	rootCmd.AddCommand(runCmd())
+	rootCmd.AddCommand(attestCmd())
+	rootCmd.AddCommand(verifyCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -373,6 +377,8 @@ func runCmd() *cobra.Command {
 	var inputFlag string
 	var workspaceFlag string
 	var outFlag string
+	var applyFlag bool
+	var approveFlag bool
 
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -413,6 +419,8 @@ func runCmd() *cobra.Command {
 				WorkspacePath: workspaceFlag,
 				EvidenceDir:   outFlag,
 				PipelinePath:  pipelineFile,
+				ApplyForReal:  applyFlag,
+				ApplyApproved: approveFlag,
 			})
 			if err != nil {
 				return err
@@ -427,10 +435,71 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&inputFlag, "input", "i", "", "input string for the pipeline (defaults to stdin)")
 	cmd.Flags().StringVar(&workspaceFlag, "workspace", "", "workspace path for apply/gates")
 	cmd.Flags().StringVar(&outFlag, "out", "", "evidence output base directory")
+	cmd.Flags().BoolVar(&applyFlag, "apply", false, "apply changes to the real workspace")
+	cmd.Flags().BoolVar(&approveFlag, "yes", false, "approve applying changes to the real workspace")
 
 	return cmd
 }
 
+func attestCmd() *cobra.Command {
+	var runDir string
+	var stageName string
+	var outFile string
+
+	cmd := &cobra.Command{
+		Use:   "attest",
+		Short: "Export a v0 attestation for a stage",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if runDir == "" || stageName == "" || outFile == "" {
+				return fmt.Errorf("--run, --stage, and --out are required")
+			}
+
+			attestation, err := attest.BuildAttestation(runDir, stageName)
+			if err != nil {
+				return err
+			}
+
+			data, err := json.MarshalIndent(attestation, "", "  ")
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(outFile, data, 0644)
+		},
+	}
+
+	cmd.Flags().StringVar(&runDir, "run", "", "run directory containing evidence")
+	cmd.Flags().StringVar(&stageName, "stage", "", "stage name to attest")
+	cmd.Flags().StringVar(&outFile, "out", "", "output file path")
+
+	return cmd
+}
+
+func verifyCmd() *cobra.Command {
+	var attestationPath string
+	var runDir string
+
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify an attestation against a run directory",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if attestationPath == "" || runDir == "" {
+				return fmt.Errorf("--attestation and --run are required")
+			}
+
+			if err := attest.VerifyAttestationFile(attestationPath, runDir); err != nil {
+				return err
+			}
+
+			fmt.Fprintln(os.Stdout, "Attestation verified.")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&attestationPath, "attestation", "", "attestation file path")
+	cmd.Flags().StringVar(&runDir, "run", "", "run directory containing evidence")
+
+	return cmd
+}
 func loadConfig() (*config.Config, error) {
 	var cfg *config.Config
 	var err error

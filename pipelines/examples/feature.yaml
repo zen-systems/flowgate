@@ -11,6 +11,8 @@ gates:
     type: command
     command: ["go", "test", "./..."]
     workdir: .
+    allowed_commands: ["go test"]
+    deny_shell: true
 
 stages:
   - name: research

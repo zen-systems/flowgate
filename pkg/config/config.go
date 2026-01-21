@@ -39,15 +39,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to get config directory: %w", err)
 	}
 
-	// Load file config first
-	fileConfig := loadFileConfig(filepath.Join(configDir, "config.yaml"))
-
-	// Build config with env vars taking precedence over file
+	// Build config from environment only; file-based API keys are ignored.
 	cfg := &Config{
-		AnthropicAPIKey: getEnvOrDefault("ANTHROPIC_API_KEY", fileConfig.APIKeys.Anthropic),
-		OpenAIAPIKey:    getEnvOrDefault("OPENAI_API_KEY", fileConfig.APIKeys.OpenAI),
-		GoogleAPIKey:    getEnvOrDefault("GOOGLE_API_KEY", fileConfig.APIKeys.Google),
-		DeepSeekAPIKey:  getEnvOrDefault("DEEPSEEK_API_KEY", fileConfig.APIKeys.DeepSeek),
+		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
+		OpenAIAPIKey:    os.Getenv("OPENAI_API_KEY"),
+		GoogleAPIKey:    os.Getenv("GOOGLE_API_KEY"),
+		DeepSeekAPIKey:  os.Getenv("DEEPSEEK_API_KEY"),
 		ConfigDir:       configDir,
 	}
 
@@ -73,15 +70,12 @@ func LoadWithRoutingFile(routingPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to get config directory: %w", err)
 	}
 
-	// Load file config first
-	fileConfig := loadFileConfig(filepath.Join(configDir, "config.yaml"))
-
-	// Build config with env vars taking precedence over file
+	// Build config from environment only; file-based API keys are ignored.
 	cfg := &Config{
-		AnthropicAPIKey: getEnvOrDefault("ANTHROPIC_API_KEY", fileConfig.APIKeys.Anthropic),
-		OpenAIAPIKey:    getEnvOrDefault("OPENAI_API_KEY", fileConfig.APIKeys.OpenAI),
-		GoogleAPIKey:    getEnvOrDefault("GOOGLE_API_KEY", fileConfig.APIKeys.Google),
-		DeepSeekAPIKey:  getEnvOrDefault("DEEPSEEK_API_KEY", fileConfig.APIKeys.DeepSeek),
+		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
+		OpenAIAPIKey:    os.Getenv("OPENAI_API_KEY"),
+		GoogleAPIKey:    os.Getenv("GOOGLE_API_KEY"),
+		DeepSeekAPIKey:  os.Getenv("DEEPSEEK_API_KEY"),
 		ConfigDir:       configDir,
 	}
 
@@ -121,15 +115,6 @@ func loadFileConfig(path string) *FileConfig {
 
 	_ = yaml.Unmarshal(data, cfg) // Ignore parse errors, use defaults
 	return cfg
-}
-
-// getEnvOrDefault returns the environment variable value if set,
-// otherwise returns the default value.
-func getEnvOrDefault(envVar, defaultValue string) string {
-	if val := os.Getenv(envVar); val != "" {
-		return val
-	}
-	return defaultValue
 }
 
 func getConfigDir() (string, error) {

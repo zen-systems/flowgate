@@ -12,7 +12,7 @@ func TestCommandGateCapturesOutput(t *testing.T) {
 		t.Skip("sh not available")
 	}
 
-	gate, err := NewCommandGate("check", []string{"sh", "-c", "echo hello; echo err 1>&2; exit 1"}, "")
+	gate, err := NewCommandGate("check", []string{"sh", "-c", "echo hello; echo err 1>&2; exit 1"}, "", nil, false, "", nil, "none", "", true)
 	if err != nil {
 		t.Fatalf("new gate: %v", err)
 	}
@@ -37,5 +37,28 @@ func TestCommandGateCapturesOutput(t *testing.T) {
 	}
 	if diag.ExitCode == 0 {
 		t.Fatalf("expected non-zero exit code")
+	}
+}
+
+func TestCommandGateAllowedExact(t *testing.T) {
+	command := []string{"go", "test", "./..."}
+	allowed := []string{"go test", "npm test"}
+
+	if matchesAllowedExact(command, allowed) {
+		t.Fatalf("expected command to be denied")
+	}
+
+	allowed = []string{"go test ./..."}
+	if !matchesAllowedExact(command, allowed) {
+		t.Fatalf("expected command to be allowed")
+	}
+
+	if matchesAllowedExact([]string{"go", "vet", "./..."}, allowed) {
+		t.Fatalf("expected command to be denied")
+	}
+
+	allowed = []string{"go test ./..."}
+	if matchesAllowedExact([]string{"go", "test", "./...", "-exec", "rm", "-rf", "/"}, allowed) {
+		t.Fatalf("expected command with extra args to be denied")
 	}
 }

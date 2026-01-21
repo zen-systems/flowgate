@@ -37,3 +37,27 @@ func GenerateRepairPrompt(original *artifact.Artifact, result *gate.GateResult) 
 
 	return sb.String()
 }
+
+// GenerateEscalationPrompt creates a stronger prompt when the repair loop is stuck.
+func GenerateEscalationPrompt(original *artifact.Artifact, result *gate.GateResult, requireDiff bool) string {
+	var sb strings.Builder
+
+	sb.WriteString("The previous outputs are repeating and failed quality checks.\n")
+	sb.WriteString("Do NOT repeat the previous output; change the implementation.\n\n")
+
+	sb.WriteString("Issues found:\n")
+	for _, v := range result.Violations {
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", v.Rule, v.Message))
+	}
+
+	if requireDiff {
+		sb.WriteString("\nReturn a unified diff only.\n")
+	}
+
+	sb.WriteString("\nPrevious output:\n---\n")
+	sb.WriteString(original.Content)
+	sb.WriteString("\n---\n")
+	sb.WriteString("\nProvide a corrected implementation that addresses the issues above.\n")
+
+	return sb.String()
+}

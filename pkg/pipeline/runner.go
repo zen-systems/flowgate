@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -27,6 +28,8 @@ type RunOptions struct {
 	WorkspacePath string
 	EvidenceDir   string
 	PipelinePath  string
+	ApplyForReal  bool
+	ApplyApproved bool
 	Logger        func(format string, args ...any)
 }
 
@@ -52,6 +55,19 @@ type GateResult struct {
 	Result   *gate.GateResult
 	Error    error
 	Duration time.Duration
+}
+
+// RepairState tracks attempts and escalation decisions.
+type RepairState struct {
+	Attempts  []AttemptState
+	Escalated bool
+}
+
+// AttemptState captures a single attempt fingerprint.
+type AttemptState struct {
+	PromptHash           string
+	OutputHash           string
+	ViolationFingerprint string
 }
 
 // Run executes the pipeline with the given adapters and options.
@@ -103,7 +119,7 @@ func Run(ctx context.Context, pipeline *Pipeline, opts RunOptions) (*RunResult, 
 	stagesLegacy := make(map[string]map[string]string)
 
 	for _, stage := range pipeline.Stages {
-		stageResult, stageRecord, err := runStage(ctx, stage, adapters, pipeline, opts.Input, workspacePath, artifacts, stagesLegacy)
+		stageResult, stageRecord, err := runStage(ctx, writer, stage, adapters, pipeline, opts.Input, workspacePath, opts.ApplyForReal, opts.ApplyApproved, artifacts, stagesLegacy)
 		if stageRecord != nil {
 			stageRecord.Name = stage.Name
 			if writeErr := writer.WriteStage(*stageRecord); writeErr != nil {
@@ -132,16 +148,22 @@ func Run(ctx context.Context, pipeline *Pipeline, opts RunOptions) (*RunResult, 
 
 func runStage(
 	ctx context.Context,
+	writer *evidence.Writer,
 	stage *Stage,
 	adapters map[string]adapter.Adapter,
 	pipeline *Pipeline,
 	input string,
 	workspacePath string,
+	applyForReal bool,
+	applyApproved bool,
 	artifacts map[string]ArtifactTemplateData,
 	stagesLegacy map[string]map[string]string,
 ) (*StageResult, *evidence.StageRecord, error) {
 	if stage == nil {
 		return nil, nil, fmt.Errorf("stage is nil")
+	}
+	if writer == nil {
+		return nil, nil, fmt.Errorf("evidence writer is nil")
 	}
 
 	start := time.Now()
@@ -178,12 +200,17 @@ func runStage(
 		return nil, stageRecord, fmt.Errorf("render prompt for stage %s: %w", stage.Name, err)
 	}
 
+	promptRef, promptSha, err := writer.WriteBlob("prompt", []byte(prompt))
+	if err != nil {
+		return nil, stageRecord, fmt.Errorf("write prompt blob for stage %s: %w", stage.Name, err)
+	}
+
 	stageRecord.Adapter = adapterName
 	stageRecord.Model = model
 	stageRecord.Prompt = truncateForEvidence(prompt, 4096)
-	if stageRecord.Prompt != prompt {
-		stageRecord.PromptHash = hashString(prompt)
-	}
+	stageRecord.PromptRef = promptRef
+	stageRecord.PromptHash = promptSha
+	stageRecord.PromptLen = len(prompt)
 
 	attempts := stage.MaxRetries + 1
 	if attempts < 1 {
@@ -194,6 +221,7 @@ func runStage(
 	var lastGateResults []GateResult
 	var lastApplyResult *workspace.ApplyResult
 	var lastErr error
+	state := RepairState{}
 
 	for attempt := 1; attempt <= attempts; attempt++ {
 		attemptStart := time.Now()
@@ -204,16 +232,36 @@ func runStage(
 		}
 		lastArtifact = art
 
-		applyResult, applyErr := applyIfNeeded(stage, workspacePath, art)
+		attemptPromptRef, attemptPromptSha, err := writer.WriteBlob("attempt-prompt", []byte(prompt))
+		if err != nil {
+			attemptPromptSha = hashString(prompt)
+			attemptPromptRef = ""
+		}
+		attemptOutputRef, attemptOutputSha, err := writer.WriteBlob("attempt-output", []byte(art.Content))
+		if err != nil {
+			attemptOutputSha = hashString(art.Content)
+			attemptOutputRef = ""
+		}
+
+		applyResult, applyWorkspacePath, applyMode, cleanup, applyErr := applyIfNeeded(stage, workspacePath, art, applyForReal, applyApproved)
+		if cleanup != nil {
+			defer cleanup()
+		}
 		lastApplyResult = applyResult
 
-		gateResults, gateErr := evaluateGates(ctx, stage, pipeline, art, workspacePath)
+		gateResults, gateErr := evaluateGates(ctx, stage, pipeline, art, applyWorkspacePath, applyApproved)
 		lastGateResults = gateResults
 
 		succeeded := applyErr == nil && gateErr == nil
 		attemptRecord := evidence.AttemptRecord{
 			Attempt:        attempt,
-			PromptHash:     hashString(prompt),
+			PromptHash:     attemptPromptSha,
+			PromptRef:      attemptPromptRef,
+			OutputRef:      attemptOutputRef,
+			OutputHash:     attemptOutputSha,
+			OutputLen:      len(art.Content),
+			WorkspaceUsed:  applyWorkspacePath,
+			WorkspaceMode:  applyMode,
 			GateResults:    evidenceGateRecords(gateResults),
 			Succeeded:      succeeded,
 			DurationMillis: time.Since(attemptStart).Milliseconds(),
@@ -228,6 +276,33 @@ func runStage(
 			break
 		}
 
+		failureResult := consolidateGateFailures(gateResults, applyErr)
+		outputHash := art.Hash
+		if outputHash == "" {
+			outputHash = hashString(art.Content)
+		}
+		fingerprint := fingerprintViolations(failureResult.Violations, applyErr)
+		state.Attempts = append(state.Attempts, AttemptState{
+			PromptHash:           attemptPromptSha,
+			OutputHash:           outputHash,
+			ViolationFingerprint: fingerprint,
+		})
+
+		if len(state.Attempts) >= 2 {
+			prev := state.Attempts[len(state.Attempts)-2]
+			if fingerprint == prev.ViolationFingerprint && outputHash == prev.OutputHash {
+				if !state.Escalated {
+					state.Escalated = true
+					if stage.FallbackModel != "" {
+						model = stage.FallbackModel
+					}
+					prompt = repair.GenerateEscalationPrompt(art, failureResult, stage.Apply)
+					continue
+				}
+				return nil, stageRecord, fmt.Errorf("repair loop detected for stage %s: fingerprint=%s outputHash=%s promptRef=%s outputRef=%s", stage.Name, fingerprint, outputHash, attemptPromptRef, attemptOutputRef)
+			}
+		}
+
 		if attempt == attempts {
 			if applyErr != nil {
 				lastErr = applyErr
@@ -239,7 +314,6 @@ func runStage(
 			break
 		}
 
-		failureResult := consolidateGateFailures(gateResults, applyErr)
 		prompt = repair.GenerateRepairPrompt(art, failureResult)
 	}
 
@@ -247,13 +321,19 @@ func runStage(
 		return nil, stageRecord, lastErr
 	}
 
-	stageRecord.Output = truncateForEvidence(lastArtifact.Content, 4096)
-	if stageRecord.Output != lastArtifact.Content {
-		stageRecord.OutputHash = hashString(lastArtifact.Content)
+	output := lastArtifact.Content
+	outputRef, outputSha, err := writer.WriteBlob("output", []byte(output))
+	if err != nil {
+		return nil, stageRecord, fmt.Errorf("write output blob for stage %s: %w", stage.Name, err)
 	}
+
+	stageRecord.Output = truncateForEvidence(output, 4096)
+	stageRecord.OutputRef = outputRef
+	stageRecord.OutputHash = outputSha
+	stageRecord.OutputLen = len(output)
 	stageRecord.GateResults = evidenceGateRecords(lastGateResults)
 	stageRecord.Artifacts = map[string]string{
-		"text": lastArtifact.Content,
+		"text": output,
 		"hash": lastArtifact.Hash,
 	}
 	if lastApplyResult != nil {
@@ -274,23 +354,38 @@ func runStage(
 	}, stageRecord, nil
 }
 
-func applyIfNeeded(stage *Stage, workspacePath string, art *artifact.Artifact) (*workspace.ApplyResult, error) {
+func applyIfNeeded(stage *Stage, workspacePath string, art *artifact.Artifact, applyForReal bool, applyApproved bool) (*workspace.ApplyResult, string, string, func() error, error) {
 	if !stage.Apply {
-		return nil, nil
+		return nil, workspacePath, "real", nil, nil
 	}
-	result, err := workspace.ApplyOutput(workspacePath, art.Content)
+	if applyForReal && !applyApproved {
+		return nil, workspacePath, "real", nil, fmt.Errorf("apply for real requires explicit approval")
+	}
+	applyPath := workspacePath
+	mode := "real"
+	var cleanup func() error
+	if !applyForReal {
+		tempDir, tempCleanup, err := workspace.CloneToTemp(workspacePath)
+		if err != nil {
+			return nil, workspacePath, "temp", nil, err
+		}
+		applyPath = tempDir
+		mode = "temp"
+		cleanup = tempCleanup
+	}
+	result, err := workspace.ApplyOutput(applyPath, art.Content)
 	if err != nil {
-		return nil, err
+		return nil, applyPath, mode, cleanup, err
 	}
-	return result, nil
+	return result, applyPath, mode, cleanup, nil
 }
 
-func evaluateGates(ctx context.Context, stage *Stage, pipeline *Pipeline, art *artifact.Artifact, workspacePath string) ([]GateResult, error) {
+func evaluateGates(ctx context.Context, stage *Stage, pipeline *Pipeline, art *artifact.Artifact, workspacePath string, applyApproved bool) ([]GateResult, error) {
 	if len(stage.Gates) == 0 {
 		return nil, nil
 	}
 
-	gateInstances, err := buildGateInstances(pipeline, stage.Gates, workspacePath)
+	gateInstances, err := buildGateInstances(pipeline, stage.Gates, workspacePath, applyApproved)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +411,7 @@ func evaluateGates(ctx context.Context, stage *Stage, pipeline *Pipeline, art *a
 	return results, nil
 }
 
-func buildGateInstances(pipeline *Pipeline, gateNames []string, workspacePath string) ([]gate.Gate, error) {
+func buildGateInstances(pipeline *Pipeline, gateNames []string, workspacePath string, applyApproved bool) ([]gate.Gate, error) {
 	instances := make([]gate.Gate, 0, len(gateNames))
 	for _, name := range gateNames {
 		if name == "hollowcheck" {
@@ -338,7 +433,42 @@ func buildGateInstances(pipeline *Pipeline, gateNames []string, workspacePath st
 			} else if !filepath.IsAbs(workdir) {
 				workdir = filepath.Join(workspacePath, workdir)
 			}
-			g, err := gate.NewCommandGate(name, def.Command, workdir)
+
+			denyShell := true
+			if def.DenyShell != nil {
+				denyShell = *def.DenyShell
+			}
+
+			policyMode := "none"
+			capability := ""
+			var templates []gate.CommandTemplate
+			var allowed []string
+			if def.Capability != "" {
+				resolved, ok := gate.TemplatesForCapability(def.Capability)
+				if !ok {
+					return nil, fmt.Errorf("unknown capability %s", def.Capability)
+				}
+				policyMode = "capability"
+				capability = def.Capability
+				templates = resolved
+			} else if len(def.Templates) > 0 {
+				policyMode = "templates"
+				for _, tmpl := range def.Templates {
+					templates = append(templates, gate.CommandTemplate{Exec: tmpl.Exec, Args: tmpl.Args})
+				}
+			} else if len(def.AllowedCommands) > 0 {
+				policyMode = "legacy"
+				allowed = def.AllowedCommands
+				for _, entry := range def.AllowedCommands {
+					fields := strings.Fields(entry)
+					if len(fields) == 0 {
+						continue
+					}
+					templates = append(templates, gate.CommandTemplate{Exec: fields[0], Args: fields[1:]})
+				}
+			}
+
+			g, err := gate.NewCommandGate(name, def.Command, workdir, allowed, denyShell, workspacePath, templates, policyMode, capability, applyApproved)
 			if err != nil {
 				return nil, err
 			}
@@ -419,7 +549,7 @@ func prepareEvidenceWriter(baseDir, workspacePath string) (*evidence.Writer, err
 	if baseDir == "" {
 		baseDir = filepath.Join(workspacePath, ".flowgate", "runs")
 	}
-	if err := os.MkdirAll(baseDir, 0755); err != nil {
+	if err := os.MkdirAll(baseDir, 0700); err != nil {
 		return nil, err
 	}
 
@@ -505,4 +635,20 @@ func randomSuffix() string {
 	now := time.Now().UTC().UnixNano()
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%d", now)))
 	return hex.EncodeToString(sum[:4])
+}
+
+func fingerprintViolations(violations []gate.Violation, applyErr error) string {
+	if len(violations) == 0 && applyErr == nil {
+		return ""
+	}
+	normalized := make([]string, 0, len(violations))
+	for _, v := range violations {
+		normalized = append(normalized, fmt.Sprintf("%s|%s|%s", v.Rule, v.Message, v.Location))
+	}
+	sort.Strings(normalized)
+	if applyErr != nil {
+		normalized = append(normalized, "apply:"+applyErr.Error())
+	}
+	sum := sha256.Sum256([]byte(strings.Join(normalized, "\n")))
+	return hex.EncodeToString(sum[:])
 }
