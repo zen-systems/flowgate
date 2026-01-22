@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/zen-systems/flowgate/pkg/artifact"
@@ -45,9 +46,13 @@ func (a *GoogleAdapter) Models() []string {
 }
 
 // Generate sends a prompt to Gemini and returns the response as an artifact.
-func (a *GoogleAdapter) Generate(ctx context.Context, model string, prompt string) (*artifact.Artifact, error) {
+func (a *GoogleAdapter) Generate(ctx context.Context, model string, prompt string) (*Response, error) {
 	resp, err := a.client.Models.GenerateContent(ctx, model, genai.Text(prompt), nil)
 	if err != nil {
+		var apiErr *genai.APIError
+		if errors.As(err, &apiErr) {
+			return nil, &AdapterError{Status: apiErr.Code, Temporary: apiErr.Code == 429 || apiErr.Code >= 500, Err: err}
+		}
 		return nil, fmt.Errorf("google API error: %w", err)
 	}
 
@@ -64,5 +69,20 @@ func (a *GoogleAdapter) Generate(ctx context.Context, model string, prompt strin
 		}
 	}
 
-	return artifact.New(content, a.Name(), model, prompt), nil
+	art := artifact.New(content, a.Name(), model, prompt)
+	usage := usageFromGoogle(resp)
+	return &Response{Artifact: art, Usage: usage}, nil
+}
+
+func usageFromGoogle(resp *genai.GenerateContentResponse) *Usage {
+	if resp == nil || resp.UsageMetadata == nil {
+		return nil
+	}
+	prompt := int(resp.UsageMetadata.PromptTokenCount)
+	completion := int(resp.UsageMetadata.CandidatesTokenCount)
+	return &Usage{
+		PromptTokens:     prompt,
+		CompletionTokens: completion,
+		TotalTokens:      prompt + completion,
+	}
 }

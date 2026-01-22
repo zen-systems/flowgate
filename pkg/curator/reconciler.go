@@ -12,9 +12,9 @@ import (
 
 // Reconciler detects conflicts and gaps in gathered information.
 type Reconciler struct {
-	adapter           adapter.Adapter
-	model             string
-	stalenessWindow   time.Duration // How old before info is considered stale
+	adapter         adapter.Adapter
+	model           string
+	stalenessWindow time.Duration // How old before info is considered stale
 }
 
 // NewReconciler creates a new Reconciler.
@@ -96,7 +96,7 @@ Return JSON: {"has_conflict": true/false, "topic": "brief topic description", "e
 		}
 
 		// Parse response
-		conflict := parseConflictResponse(result.Content, needID, items)
+		conflict := parseConflictResponse(result.Artifact.Content, needID, items)
 		if conflict != nil {
 			conflictID++
 			conflict.ID = fmt.Sprintf("conflict_%d", conflictID)

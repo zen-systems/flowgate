@@ -15,8 +15,9 @@ type staticAdapter struct {
 	content string
 }
 
-func (a *staticAdapter) Generate(_ context.Context, model string, prompt string) (*artifact.Artifact, error) {
-	return artifact.New(a.content, "static", model, prompt), nil
+func (a *staticAdapter) Generate(_ context.Context, model string, prompt string) (*adapter.Response, error) {
+	art := artifact.New(a.content, "static", model, prompt)
+	return &adapter.Response{Artifact: art}, nil
 }
 
 func (a *staticAdapter) Name() string { return "static" }

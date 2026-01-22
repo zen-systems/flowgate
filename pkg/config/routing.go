@@ -8,8 +8,15 @@ import (
 
 // RoutingConfig holds the routing rules configuration.
 type RoutingConfig struct {
-	TaskTypes map[string]TaskType `yaml:"task_types"`
-	Default   RouteTarget         `yaml:"default"`
+	TaskTypes                     map[string]TaskType `yaml:"task_types"`
+	Default                       RouteTarget         `yaml:"default"`
+	Retry                         RetryConfig         `yaml:"retry,omitempty"`
+	Fallback                      FallbackConfig      `yaml:"fallback,omitempty"`
+	Pricing                       PricingConfig       `yaml:"pricing,omitempty"`
+	ClassifierAdapter             string              `yaml:"classifier_adapter,omitempty"`
+	ClassifierModel               string              `yaml:"classifier_model,omitempty"`
+	ClassifierConfidenceThreshold float64             `yaml:"classifier_confidence_threshold,omitempty"`
+	EnableLLMTieBreaker           *bool               `yaml:"enable_llm_tie_breaker,omitempty"`
 }
 
 // TaskType defines a category of tasks with routing rules.
@@ -25,6 +32,28 @@ type RouteTarget struct {
 	Model   string `yaml:"model"`
 }
 
+// RetryConfig defines retry and backoff behavior.
+type RetryConfig struct {
+	MaxRetries    int `yaml:"max_retries,omitempty"`
+	BaseBackoffMs int `yaml:"base_backoff_ms,omitempty"`
+	MaxBackoffMs  int `yaml:"max_backoff_ms,omitempty"`
+}
+
+// FallbackConfig defines adapter/model fallbacks.
+type FallbackConfig struct {
+	AllowFallback bool                     `yaml:"allow_fallback,omitempty"`
+	FallbackChain map[string][]RouteTarget `yaml:"fallback_chain,omitempty"`
+}
+
+// PricingConfig maps adapter -> model -> pricing.
+type PricingConfig map[string]map[string]ModelPricing
+
+// ModelPricing defines per-1k token pricing.
+type ModelPricing struct {
+	PromptPer1K     float64 `yaml:"prompt_per_1k,omitempty"`
+	CompletionPer1K float64 `yaml:"completion_per_1k,omitempty"`
+}
+
 // LoadRoutingConfig reads routing configuration from a YAML file.
 func LoadRoutingConfig(path string) (*RoutingConfig, error) {
 	data, err := os.ReadFile(path)
@@ -37,12 +66,13 @@ func LoadRoutingConfig(path string) (*RoutingConfig, error) {
 		return nil, err
 	}
 
+	applyRoutingDefaults(&cfg)
 	return &cfg, nil
 }
 
 // DefaultRoutingConfig returns the default routing configuration.
 func DefaultRoutingConfig() *RoutingConfig {
-	return &RoutingConfig{
+	cfg := &RoutingConfig{
 		TaskTypes: map[string]TaskType{
 			"research": {
 				Triggers: []string{"research", "find", "look up", "what is", "compare"},
@@ -129,5 +159,33 @@ func DefaultRoutingConfig() *RoutingConfig {
 			Adapter: "anthropic",
 			Model:   "claude-sonnet-4-20250514",
 		},
+	}
+
+	applyRoutingDefaults(cfg)
+	return cfg
+}
+
+func applyRoutingDefaults(cfg *RoutingConfig) {
+	if cfg == nil {
+		return
+	}
+	if cfg.Retry.MaxRetries == 0 {
+		cfg.Retry.MaxRetries = 2
+	}
+	if cfg.Retry.BaseBackoffMs == 0 {
+		cfg.Retry.BaseBackoffMs = 200
+	}
+	if cfg.Retry.MaxBackoffMs == 0 {
+		cfg.Retry.MaxBackoffMs = 2000
+	}
+	if cfg.Retry.MaxBackoffMs < cfg.Retry.BaseBackoffMs {
+		cfg.Retry.MaxBackoffMs = cfg.Retry.BaseBackoffMs
+	}
+	if cfg.ClassifierConfidenceThreshold == 0 {
+		cfg.ClassifierConfidenceThreshold = 0.65
+	}
+	if cfg.EnableLLMTieBreaker == nil {
+		enabled := true
+		cfg.EnableLLMTieBreaker = &enabled
 	}
 }

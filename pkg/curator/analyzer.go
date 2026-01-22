@@ -52,7 +52,7 @@ Return ONLY a JSON array, no markdown or explanation. Example format:
 		return nil, fmt.Errorf("analyzer model call failed: %w", err)
 	}
 
-	return parseInformationNeeds(result.Content)
+	return parseInformationNeeds(result.Artifact.Content)
 }
 
 // parseInformationNeeds extracts InformationNeed objects from model response.

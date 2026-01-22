@@ -15,8 +15,9 @@ type fixedAdapter struct {
 	content string
 }
 
-func (a *fixedAdapter) Generate(_ context.Context, model string, prompt string) (*artifact.Artifact, error) {
-	return artifact.New(a.content, "fixed", model, prompt), nil
+func (a *fixedAdapter) Generate(_ context.Context, model string, prompt string) (*adapter.Response, error) {
+	art := artifact.New(a.content, "fixed", model, prompt)
+	return &adapter.Response{Artifact: art}, nil
 }
 
 func (a *fixedAdapter) Name() string { return "fixed" }
@@ -28,13 +29,15 @@ type changingAdapter struct {
 	index    int
 }
 
-func (a *changingAdapter) Generate(_ context.Context, model string, prompt string) (*artifact.Artifact, error) {
+func (a *changingAdapter) Generate(_ context.Context, model string, prompt string) (*adapter.Response, error) {
 	if a.index >= len(a.contents) {
-		return artifact.New("fallback", "changing", model, prompt), nil
+		art := artifact.New("fallback", "changing", model, prompt)
+		return &adapter.Response{Artifact: art}, nil
 	}
 	content := a.contents[a.index]
 	a.index++
-	return artifact.New(content, "changing", model, prompt), nil
+	art := artifact.New(content, "changing", model, prompt)
+	return &adapter.Response{Artifact: art}, nil
 }
 
 func (a *changingAdapter) Name() string { return "changing" }
@@ -81,6 +84,8 @@ func TestRepairLoopDetection(t *testing.T) {
 		t.TempDir(),
 		false,
 		true,
+		nil,
+		newCostTracker(nil, 0),
 		map[string]ArtifactTemplateData{},
 		map[string]map[string]string{},
 	)
@@ -132,6 +137,8 @@ func TestRepairLoopAllowsChangedOutput(t *testing.T) {
 		t.TempDir(),
 		false,
 		true,
+		nil,
+		newCostTracker(nil, 0),
 		map[string]ArtifactTemplateData{},
 		map[string]map[string]string{},
 	)

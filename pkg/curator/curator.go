@@ -128,7 +128,7 @@ func (c *Curator) Models() []string {
 }
 
 // Generate orchestrates context curation and generates a response.
-func (c *Curator) Generate(ctx context.Context, model string, prompt string) (*artifact.Artifact, error) {
+func (c *Curator) Generate(ctx context.Context, model string, prompt string) (*adapter.Response, error) {
 	startTime := time.Now()
 	result := &CuratedContext{
 		Query:  prompt,
@@ -301,17 +301,17 @@ func (c *Curator) Generate(ctx context.Context, model string, prompt string) (*a
 	result.ProcessingTime = time.Since(startTime)
 
 	// Add curation metadata to the artifact
-	response = response.WithMetadata("curator", "true")
-	response = response.WithMetadata("needs_count", fmt.Sprintf("%d", len(needs)))
-	response = response.WithMetadata("gathered_count", fmt.Sprintf("%d", len(gathered)))
-	response = response.WithMetadata("context_tokens", fmt.Sprintf("%d", tokenCount))
-	response = response.WithMetadata("processing_time", result.ProcessingTime.String())
+	response.Artifact = response.Artifact.WithMetadata("curator", "true")
+	response.Artifact = response.Artifact.WithMetadata("needs_count", fmt.Sprintf("%d", len(needs)))
+	response.Artifact = response.Artifact.WithMetadata("gathered_count", fmt.Sprintf("%d", len(gathered)))
+	response.Artifact = response.Artifact.WithMetadata("context_tokens", fmt.Sprintf("%d", tokenCount))
+	response.Artifact = response.Artifact.WithMetadata("processing_time", result.ProcessingTime.String())
 
 	return response, nil
 }
 
 // createClarifyingResponse creates an artifact with clarifying questions.
-func (c *Curator) createClarifyingResponse(questions []string, model, prompt string) (*artifact.Artifact, error) {
+func (c *Curator) createClarifyingResponse(questions []string, model, prompt string) (*adapter.Response, error) {
 	content := "I need some clarification before I can fully answer your question:\n\n"
 	for i, q := range questions {
 		content += fmt.Sprintf("%d. %s\n", i+1, q)
@@ -322,7 +322,7 @@ func (c *Curator) createClarifyingResponse(questions []string, model, prompt str
 	art = art.WithMetadata("type", "clarification")
 	art = art.WithMetadata("questions_count", fmt.Sprintf("%d", len(questions)))
 
-	return art, nil
+	return &adapter.Response{Artifact: art}, nil
 }
 
 // countActiveSources returns the number of available sources.

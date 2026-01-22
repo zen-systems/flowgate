@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/openai/openai-go"
@@ -39,7 +40,7 @@ func (a *OpenAIAdapter) Models() []string {
 }
 
 // Generate sends a prompt to OpenAI and returns the response as an artifact.
-func (a *OpenAIAdapter) Generate(ctx context.Context, model string, prompt string) (*artifact.Artifact, error) {
+func (a *OpenAIAdapter) Generate(ctx context.Context, model string, prompt string) (*Response, error) {
 	resp, err := a.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model: openai.ChatModel(model),
 		Messages: []openai.ChatCompletionMessageParamUnion{
@@ -48,6 +49,10 @@ func (a *OpenAIAdapter) Generate(ctx context.Context, model string, prompt strin
 		MaxCompletionTokens: openai.Int(4096),
 	})
 	if err != nil {
+		var apiErr *openai.Error
+		if errors.As(err, &apiErr) {
+			return nil, &AdapterError{Status: apiErr.StatusCode, Temporary: apiErr.StatusCode == 429 || apiErr.StatusCode >= 500, Err: err}
+		}
 		return nil, fmt.Errorf("openai API error: %w", err)
 	}
 
@@ -56,5 +61,11 @@ func (a *OpenAIAdapter) Generate(ctx context.Context, model string, prompt strin
 	}
 
 	content := resp.Choices[0].Message.Content
-	return artifact.New(content, a.Name(), model, prompt), nil
+	art := artifact.New(content, a.Name(), model, prompt)
+	usage := &Usage{
+		PromptTokens:     int(resp.Usage.PromptTokens),
+		CompletionTokens: int(resp.Usage.CompletionTokens),
+		TotalTokens:      int(resp.Usage.TotalTokens),
+	}
+	return &Response{Artifact: art, Usage: usage}, nil
 }

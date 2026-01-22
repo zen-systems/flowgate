@@ -6,7 +6,6 @@ import (
 	"log"
 
 	"github.com/zen-systems/flowgate/pkg/adapter"
-	"github.com/zen-systems/flowgate/pkg/artifact"
 	"github.com/zen-systems/flowgate/pkg/config"
 )
 
@@ -16,7 +15,7 @@ type Router interface {
 	Route(prompt string) (adapter.Adapter, string)
 
 	// Send routes and sends a prompt, returning the result.
-	Send(ctx context.Context, prompt string) (*artifact.Artifact, error)
+	Send(ctx context.Context, prompt string) (*adapter.Response, error)
 
 	// GetAdapter returns an adapter by name.
 	GetAdapter(name string) (adapter.Adapter, bool)
@@ -30,8 +29,8 @@ type RouteInfo struct {
 	TaskType      string
 	Triggers      []string
 	Adapter       string
-	Model         string   // May be alias
-	ResolvedModel string   // Canonical model name
+	Model         string // May be alias
+	ResolvedModel string // Canonical model name
 }
 
 // DefaultRouter implements Router using pattern matching.
@@ -41,6 +40,7 @@ type DefaultRouter struct {
 	rules    *RuleSet
 	config   *config.RoutingConfig
 	debug    bool
+	decision *Decision
 }
 
 // RouterOption configures a DefaultRouter.
@@ -76,7 +76,23 @@ func NewRouter(adapters map[string]adapter.Adapter, cfg *config.RoutingConfig, o
 
 // Route determines the adapter and model for a prompt.
 func (r *DefaultRouter) Route(prompt string) (adapter.Adapter, string) {
+	a, model, _ := r.RouteWithDecision(context.Background(), prompt)
+	return a, model
+}
+
+// RouteWithDecision determines the adapter/model for a prompt and returns the decision.
+func (r *DefaultRouter) RouteWithDecision(ctx context.Context, prompt string) (adapter.Adapter, string, *Decision) {
 	adapterName, model := r.rules.Match(prompt)
+	decision, err := NewClassifier(r.adapters, r.config).Classify(ctx, prompt)
+	if err != nil && r.debug {
+		log.Printf("[router] classifier error: %v", err)
+	}
+	if decision != nil && decision.TaskType != "" && decision.TaskType != "default" {
+		if task, ok := r.config.TaskTypes[decision.TaskType]; ok {
+			adapterName = task.Adapter
+			model = task.Model
+		}
+	}
 
 	a, ok := r.adapters[adapterName]
 	if !ok {
@@ -90,8 +106,11 @@ func (r *DefaultRouter) Route(prompt string) (adapter.Adapter, string) {
 	if r.debug && model != resolvedModel {
 		log.Printf("[router] resolved alias %q -> %q", model, resolvedModel)
 	}
+	if decision != nil {
+		r.decision = decision
+	}
 
-	return a, resolvedModel
+	return a, resolvedModel, decision
 }
 
 // resolveModel resolves a model alias to its canonical name.
@@ -103,7 +122,7 @@ func (r *DefaultRouter) resolveModel(model string) string {
 }
 
 // Send routes the prompt and generates a response.
-func (r *DefaultRouter) Send(ctx context.Context, prompt string) (*artifact.Artifact, error) {
+func (r *DefaultRouter) Send(ctx context.Context, prompt string) (*adapter.Response, error) {
 	a, model := r.Route(prompt)
 	if a == nil {
 		return nil, fmt.Errorf("no adapter available for prompt")
@@ -136,4 +155,9 @@ func (r *DefaultRouter) GetRoutes() []RouteInfo {
 // GetAliases returns the model aliases, if configured.
 func (r *DefaultRouter) GetAliases() *config.ModelAliases {
 	return r.aliases
+}
+
+// Decision returns the last routing decision, if any.
+func (r *DefaultRouter) Decision() *Decision {
+	return r.decision
 }

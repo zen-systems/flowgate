@@ -115,7 +115,7 @@ Return ONLY a JSON object mapping item index to score, e.g.: {"0": 0.8, "1": 0.3
 	}
 
 	// Parse scores
-	scores, err := parseScores(result.Content)
+	scores, err := parseScores(result.Artifact.Content)
 	if err != nil {
 		return nil, err
 	}

@@ -89,7 +89,7 @@ func (a *DeepSeekAdapter) Models() []string {
 }
 
 // Generate sends a prompt to DeepSeek and returns the response as an artifact.
-func (a *DeepSeekAdapter) Generate(ctx context.Context, model string, prompt string) (*artifact.Artifact, error) {
+func (a *DeepSeekAdapter) Generate(ctx context.Context, model string, prompt string) (*Response, error) {
 	reqBody := deepseekRequest{
 		Model: model,
 		Messages: []deepseekMessage{
@@ -128,12 +128,14 @@ func (a *DeepSeekAdapter) Generate(ctx context.Context, model string, prompt str
 	}
 
 	if deepseekResp.Error != nil {
-		return nil, fmt.Errorf("deepseek API error: %s (type: %s, code: %s)",
+		wrapped := fmt.Errorf("deepseek API error: %s (type: %s, code: %s)",
 			deepseekResp.Error.Message, deepseekResp.Error.Type, deepseekResp.Error.Code)
+		return nil, &AdapterError{Status: resp.StatusCode, Temporary: resp.StatusCode == 429 || resp.StatusCode >= 500, Err: wrapped}
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deepseek API returned status %d: %s", resp.StatusCode, string(body))
+		wrapped := fmt.Errorf("deepseek API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, &AdapterError{Status: resp.StatusCode, Temporary: resp.StatusCode == 429 || resp.StatusCode >= 500, Err: wrapped}
 	}
 
 	if len(deepseekResp.Choices) == 0 {
@@ -141,5 +143,11 @@ func (a *DeepSeekAdapter) Generate(ctx context.Context, model string, prompt str
 	}
 
 	content := deepseekResp.Choices[0].Message.Content
-	return artifact.New(content, a.Name(), model, prompt), nil
+	art := artifact.New(content, a.Name(), model, prompt)
+	usage := &Usage{
+		PromptTokens:     deepseekResp.Usage.PromptTokens,
+		CompletionTokens: deepseekResp.Usage.CompletionTokens,
+		TotalTokens:      deepseekResp.Usage.TotalTokens,
+	}
+	return &Response{Artifact: art, Usage: usage}, nil
 }

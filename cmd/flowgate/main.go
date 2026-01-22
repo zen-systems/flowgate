@@ -150,7 +150,7 @@ func askCmd() *cobra.Command {
 				p.Stages[0].Gates = []string{"hollowcheck"}
 			}
 
-			result, err := pipeline.Run(context.Background(), p, pipeline.RunOptions{Input: prompt})
+			result, err := pipeline.Run(context.Background(), p, pipeline.RunOptions{Input: prompt, RoutingConfig: cfg.RoutingConfig})
 			if err != nil {
 				return err
 			}
@@ -379,6 +379,7 @@ func runCmd() *cobra.Command {
 	var outFlag string
 	var applyFlag bool
 	var approveFlag bool
+	var maxBudgetUSD float64
 
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -419,6 +420,8 @@ func runCmd() *cobra.Command {
 				WorkspacePath: workspaceFlag,
 				EvidenceDir:   outFlag,
 				PipelinePath:  pipelineFile,
+				RoutingConfig: cfg.RoutingConfig,
+				MaxBudgetUSD:  maxBudgetUSD,
 				ApplyForReal:  applyFlag,
 				ApplyApproved: approveFlag,
 			})
@@ -437,6 +440,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outFlag, "out", "", "evidence output base directory")
 	cmd.Flags().BoolVar(&applyFlag, "apply", false, "apply changes to the real workspace")
 	cmd.Flags().BoolVar(&approveFlag, "yes", false, "approve applying changes to the real workspace")
+	cmd.Flags().Float64Var(&maxBudgetUSD, "max-budget-usd", 0, "maximum USD budget for adapter calls (0 disables)")
 
 	return cmd
 }

@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -37,7 +38,7 @@ func (a *AnthropicAdapter) Models() []string {
 }
 
 // Generate sends a prompt to Claude and returns the response as an artifact.
-func (a *AnthropicAdapter) Generate(ctx context.Context, model string, prompt string) (*artifact.Artifact, error) {
+func (a *AnthropicAdapter) Generate(ctx context.Context, model string, prompt string) (*Response, error) {
 	resp, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(model),
 		MaxTokens: 4096,
@@ -46,6 +47,10 @@ func (a *AnthropicAdapter) Generate(ctx context.Context, model string, prompt st
 		},
 	})
 	if err != nil {
+		var apiErr *anthropic.Error
+		if errors.As(err, &apiErr) {
+			return nil, &AdapterError{Status: apiErr.StatusCode, Temporary: apiErr.StatusCode == 429 || apiErr.StatusCode >= 500, Err: err}
+		}
 		return nil, fmt.Errorf("anthropic API error: %w", err)
 	}
 
@@ -56,5 +61,11 @@ func (a *AnthropicAdapter) Generate(ctx context.Context, model string, prompt st
 		}
 	}
 
-	return artifact.New(content, a.Name(), model, prompt), nil
+	art := artifact.New(content, a.Name(), model, prompt)
+	usage := &Usage{
+		PromptTokens:     int(resp.Usage.InputTokens),
+		CompletionTokens: int(resp.Usage.OutputTokens),
+		TotalTokens:      int(resp.Usage.InputTokens + resp.Usage.OutputTokens),
+	}
+	return &Response{Artifact: art, Usage: usage}, nil
 }

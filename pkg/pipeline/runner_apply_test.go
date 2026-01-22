@@ -18,8 +18,9 @@ type fileBlockAdapter struct {
 	content string
 }
 
-func (a *fileBlockAdapter) Generate(_ context.Context, model string, prompt string) (*artifact.Artifact, error) {
-	return artifact.New(a.content, "fileblock", model, prompt), nil
+func (a *fileBlockAdapter) Generate(_ context.Context, model string, prompt string) (*adapter.Response, error) {
+	art := artifact.New(a.content, "fileblock", model, prompt)
+	return &adapter.Response{Artifact: art}, nil
 }
 
 func (a *fileBlockAdapter) Name() string {

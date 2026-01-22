@@ -9,16 +9,37 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/zen-systems/flowgate/pkg/adapter"
+	"github.com/zen-systems/flowgate/pkg/router"
 )
 
 // RunRecord captures run-level metadata.
 type RunRecord struct {
-	ID           string            `json:"id"`
-	Timestamp    time.Time         `json:"timestamp"`
-	PipelineFile string            `json:"pipeline_file"`
-	InputHash    string            `json:"input_hash"`
-	Workspace    string            `json:"workspace"`
-	ToolVersions map[string]string `json:"tool_versions,omitempty"`
+	ID              string            `json:"id"`
+	Timestamp       time.Time         `json:"timestamp"`
+	PipelineFile    string            `json:"pipeline_file"`
+	InputHash       string            `json:"input_hash"`
+	Workspace       string            `json:"workspace"`
+	ToolVersions    map[string]string `json:"tool_versions,omitempty"`
+	CostReport      *RunCostReport    `json:"cost_report,omitempty"`
+	RoutingDecision *router.Decision  `json:"routing_decision,omitempty"`
+}
+
+// RunCostReport captures aggregated cost/usage information.
+type RunCostReport struct {
+	Currency    string               `json:"currency"`
+	TotalAmount float64              `json:"total_amount"`
+	TotalUsage  adapter.Usage        `json:"total_usage"`
+	Calls       []adapter.CallReport `json:"calls,omitempty"`
+	Budget      *BudgetStatus        `json:"budget,omitempty"`
+}
+
+// BudgetStatus captures budget enforcement state.
+type BudgetStatus struct {
+	MaxAmount float64 `json:"max_amount"`
+	Exceeded  bool    `json:"exceeded"`
+	Reason    string  `json:"reason,omitempty"`
 }
 
 // StageRecord captures evidence for a single stage.

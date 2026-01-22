@@ -11,6 +11,7 @@ import (
 type MockAdapter struct {
 	responses       map[string]string
 	defaultResponse string
+	Usage           *Usage
 }
 
 // NewMockAdapter creates a mock adapter with a default response.
@@ -40,13 +41,15 @@ func (a *MockAdapter) Models() []string {
 }
 
 // Generate returns a deterministic artifact for the prompt.
-func (a *MockAdapter) Generate(_ context.Context, model string, prompt string) (*artifact.Artifact, error) {
+func (a *MockAdapter) Generate(_ context.Context, model string, prompt string) (*Response, error) {
 	if model == "" {
 		model = "mock-1"
 	}
 	if response, ok := a.responses[prompt]; ok {
-		return artifact.New(response, a.Name(), model, prompt), nil
+		art := artifact.New(response, a.Name(), model, prompt)
+		return &Response{Artifact: art, Usage: a.Usage}, nil
 	}
 	content := fmt.Sprintf("%s\n%s", a.defaultResponse, prompt)
-	return artifact.New(content, a.Name(), model, prompt), nil
+	art := artifact.New(content, a.Name(), model, prompt)
+	return &Response{Artifact: art, Usage: a.Usage}, nil
 }

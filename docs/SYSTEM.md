@@ -26,6 +26,11 @@ Flowgate is a local-first AI orchestration system with:
 - Built-in adapters for Anthropic/OpenAI/Google/DeepSeek (API keys via env vars only).
 - `mock` adapter for deterministic local runs and tests.
 
+### Smart Routing
+- Heuristic trigger matching with confidence scoring (fast path).
+- Optional LLM tie-breaker using a separate classifier adapter/model.
+- Routing decision recorded in evidence with candidates, reasons, and post-run feedback.
+
 ### Gates
 - `command` gate: run a local command and capture stdout/stderr/exit code.
 - `hollowcheck` gate: text/code quality gate via hollowcheck CLI.
@@ -119,6 +124,11 @@ Config file API keys are ignored for security.
 ### Routing Config
 `~/.flowgate/routing.yaml` (see `configs/routing.yaml` for example).
 
+Classifier fields:
+- `classifier_adapter` / `classifier_model`: adapter/model for LLM tie-breaker
+- `classifier_confidence_threshold`: default `0.65`
+- `enable_llm_tie_breaker`: default `true`
+
 ## Manifest Specification (v1)
 
 ### Top-level
@@ -193,6 +203,7 @@ Evidence fields of note:
 - `stage.prompt_ref`/`stage.output_ref`: blob refs
 - `attempts[].prompt_ref`/`output_ref`: per-attempt blob refs
 - `attempts[].workspace_mode`: "temp" or "real"
+- `routing_decision`: task_type, confidence, candidates, and post-run feedback
 
 ## Attestation (v0)
 Attestation structure:

@@ -16,9 +16,11 @@ import (
 
 	"github.com/zen-systems/flowgate/pkg/adapter"
 	"github.com/zen-systems/flowgate/pkg/artifact"
+	"github.com/zen-systems/flowgate/pkg/config"
 	"github.com/zen-systems/flowgate/pkg/evidence"
 	"github.com/zen-systems/flowgate/pkg/gate"
 	"github.com/zen-systems/flowgate/pkg/repair"
+	"github.com/zen-systems/flowgate/pkg/router"
 	"github.com/zen-systems/flowgate/pkg/workspace"
 )
 
@@ -28,6 +30,8 @@ type RunOptions struct {
 	WorkspacePath string
 	EvidenceDir   string
 	PipelinePath  string
+	RoutingConfig *config.RoutingConfig
+	MaxBudgetUSD  float64
 	ApplyForReal  bool
 	ApplyApproved bool
 	Logger        func(format string, args ...any)
@@ -101,32 +105,53 @@ func Run(ctx context.Context, pipeline *Pipeline, opts RunOptions) (*RunResult, 
 		return nil, err
 	}
 
+	tracker := newCostTracker(opts.RoutingConfig, opts.MaxBudgetUSD)
+	var routingDecision *router.Decision
+	if opts.RoutingConfig != nil {
+		classifier := router.NewClassifier(adapters, opts.RoutingConfig)
+		decision, _ := classifier.Classify(ctx, opts.Input)
+		routingDecision = decision
+	}
+
 	runID := filepath.Base(writer.RunDir())
 	runRecord := evidence.RunRecord{
-		ID:           runID,
-		Timestamp:    time.Now().UTC(),
-		PipelineFile: opts.PipelinePath,
-		InputHash:    hashString(opts.Input),
-		Workspace:    workspacePath,
-		ToolVersions: map[string]string{"go": runtime.Version()},
+		ID:              runID,
+		Timestamp:       time.Now().UTC(),
+		PipelineFile:    opts.PipelinePath,
+		InputHash:       hashString(opts.Input),
+		Workspace:       workspacePath,
+		ToolVersions:    map[string]string{"go": runtime.Version()},
+		RoutingDecision: routingDecision,
 	}
 	if err := writer.WriteRun(runRecord); err != nil {
 		return nil, err
 	}
 
+	finalizeRun := func() error {
+		if tracker != nil {
+			runRecord.CostReport = tracker.report()
+		}
+		return writer.WriteRun(runRecord)
+	}
+
 	results := make(map[string]*StageResult)
+	stageRecords := make(map[string]*evidence.StageRecord)
 	artifacts := make(map[string]ArtifactTemplateData)
 	stagesLegacy := make(map[string]map[string]string)
 
 	for _, stage := range pipeline.Stages {
-		stageResult, stageRecord, err := runStage(ctx, writer, stage, adapters, pipeline, opts.Input, workspacePath, opts.ApplyForReal, opts.ApplyApproved, artifacts, stagesLegacy)
+		stageResult, stageRecord, err := runStage(ctx, writer, stage, adapters, pipeline, opts.Input, workspacePath, opts.ApplyForReal, opts.ApplyApproved, opts.RoutingConfig, tracker, artifacts, stagesLegacy)
 		if stageRecord != nil {
 			stageRecord.Name = stage.Name
 			if writeErr := writer.WriteStage(*stageRecord); writeErr != nil {
 				return nil, writeErr
 			}
+			stageRecords[stage.Name] = stageRecord
 		}
 		if err != nil {
+			if writeErr := finalizeRun(); writeErr != nil {
+				return nil, writeErr
+			}
 			return nil, err
 		}
 
@@ -137,6 +162,13 @@ func Run(ctx context.Context, pipeline *Pipeline, opts RunOptions) (*RunResult, 
 		results[stage.Name] = stageResult
 		artifacts[stage.Name] = ArtifactTemplateData{Text: stageResult.Artifact.Content, Output: stageResult.Artifact.Content, Hash: stageResult.Artifact.Hash}
 		stagesLegacy[stage.Name] = map[string]string{"output": stageResult.Artifact.Content}
+	}
+
+	if routingDecision != nil {
+		routingDecision.Feedback = buildRoutingFeedback(stageRecords, opts.Input, opts.RoutingConfig, routingDecision.TaskType)
+	}
+	if err := finalizeRun(); err != nil {
+		return nil, err
 	}
 
 	return &RunResult{
@@ -156,6 +188,8 @@ func runStage(
 	workspacePath string,
 	applyForReal bool,
 	applyApproved bool,
+	routing *config.RoutingConfig,
+	tracker *costTracker,
 	artifacts map[string]ArtifactTemplateData,
 	stagesLegacy map[string]map[string]string,
 ) (*StageResult, *evidence.StageRecord, error) {
@@ -225,11 +259,19 @@ func runStage(
 
 	for attempt := 1; attempt <= attempts; attempt++ {
 		attemptStart := time.Now()
-		art, err := adapterImpl.Generate(ctx, model, prompt)
+		resp, reports, err := callAdapterWithPolicy(ctx, adapters, adapterName, model, prompt, routing, tracker)
+		if tracker != nil {
+			tracker.recordReports(reports)
+		}
 		if err != nil {
 			lastErr = fmt.Errorf("stage %s adapter error: %w", stage.Name, err)
 			return nil, stageRecord, lastErr
 		}
+		if resp == nil || resp.Artifact == nil {
+			lastErr = fmt.Errorf("stage %s adapter returned empty response", stage.Name)
+			return nil, stageRecord, lastErr
+		}
+		art := resp.Artifact
 		lastArtifact = art
 
 		attemptPromptRef, attemptPromptSha, err := writer.WriteBlob("attempt-prompt", []byte(prompt))
@@ -327,6 +369,8 @@ func runStage(
 		return nil, stageRecord, fmt.Errorf("write output blob for stage %s: %w", stage.Name, err)
 	}
 
+	stageRecord.Adapter = lastArtifact.Adapter
+	stageRecord.Model = lastArtifact.Model
 	stageRecord.Output = truncateForEvidence(output, 4096)
 	stageRecord.OutputRef = outputRef
 	stageRecord.OutputHash = outputSha
@@ -651,4 +695,39 @@ func fingerprintViolations(violations []gate.Violation, applyErr error) string {
 	}
 	sum := sha256.Sum256([]byte(strings.Join(normalized, "\n")))
 	return hex.EncodeToString(sum[:])
+}
+
+func buildRoutingFeedback(stageRecords map[string]*evidence.StageRecord, input string, cfg *config.RoutingConfig, currentTask string) *router.RoutingFeedback {
+	feedback := &router.RoutingFeedback{
+		GatesPassed:    true,
+		AttemptsNeeded: 0,
+	}
+
+	for _, record := range stageRecords {
+		feedback.AttemptsNeeded += len(record.Attempts)
+		for _, gateResult := range record.GateResults {
+			if !gateResult.Passed || gateResult.Error != "" {
+				feedback.GatesPassed = false
+				break
+			}
+		}
+		if !feedback.GatesPassed {
+			break
+		}
+	}
+
+	if cfg == nil {
+		return feedback
+	}
+
+	heuristic := router.HeuristicDecision(input, cfg)
+	threshold := cfg.ClassifierConfidenceThreshold
+	if threshold <= 0 {
+		threshold = 0.65
+	}
+	if heuristic != nil && heuristic.TaskType != currentTask && heuristic.Confidence >= threshold {
+		feedback.WouldReroute = heuristic.TaskType
+	}
+
+	return feedback
 }

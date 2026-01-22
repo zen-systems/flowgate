@@ -17,8 +17,9 @@ type largeOutputAdapter struct {
 	content string
 }
 
-func (a *largeOutputAdapter) Generate(_ context.Context, model string, prompt string) (*artifact.Artifact, error) {
-	return artifact.New(a.content, "fake", model, prompt), nil
+func (a *largeOutputAdapter) Generate(_ context.Context, model string, prompt string) (*adapter.Response, error) {
+	art := artifact.New(a.content, "fake", model, prompt)
+	return &adapter.Response{Artifact: art}, nil
 }
 
 func (a *largeOutputAdapter) Name() string {

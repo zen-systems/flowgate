@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/zen-systems/flowgate/pkg/adapter"
 	"github.com/zen-systems/flowgate/pkg/artifact"
 	"github.com/zen-systems/flowgate/pkg/curator/sources"
 )
@@ -14,11 +15,12 @@ type mockAdapter struct {
 	err      error
 }
 
-func (m *mockAdapter) Generate(ctx context.Context, model string, prompt string) (*artifact.Artifact, error) {
+func (m *mockAdapter) Generate(ctx context.Context, model string, prompt string) (*adapter.Response, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return artifact.New(m.response, "mock", model, prompt), nil
+	art := artifact.New(m.response, "mock", model, prompt)
+	return &adapter.Response{Artifact: art}, nil
 }
 
 func (m *mockAdapter) Name() string {

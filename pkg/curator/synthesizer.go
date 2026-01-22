@@ -132,7 +132,7 @@ Format the output as markdown sections. Do not answer the query itself - just or
 		return "", err
 	}
 
-	return result.Content, nil
+	return result.Artifact.Content, nil
 }
 
 // SynthesizeForPrompt creates a context specifically formatted for use in a prompt.

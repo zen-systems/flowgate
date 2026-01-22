@@ -82,3 +82,9 @@ task_types:
 default:
   adapter: anthropic
   model: quality  # alias -> claude-sonnet-4-20250514
+
+# Optional classifier settings for smart routing tie-breakers.
+classifier_adapter: openai
+classifier_model: fast  # alias -> gpt-5.2-instant
+classifier_confidence_threshold: 0.65
+enable_llm_tie_breaker: true
