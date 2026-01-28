@@ -13,12 +13,19 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/zen-systems/flowgate/pkg/adapter"
+	"github.com/zen-systems/flowgate/pkg/archive"
 	"github.com/zen-systems/flowgate/pkg/attest"
+	"github.com/zen-systems/flowgate/pkg/bridge"
 	"github.com/zen-systems/flowgate/pkg/config"
+	"github.com/zen-systems/flowgate/pkg/crypto"
 	"github.com/zen-systems/flowgate/pkg/curator"
 	"github.com/zen-systems/flowgate/pkg/curator/sources"
 	"github.com/zen-systems/flowgate/pkg/pipeline"
+	"github.com/zen-systems/flowgate/pkg/policy"
 	"github.com/zen-systems/flowgate/pkg/router"
+	"github.com/zen-systems/provenance-gate"
+	"github.com/zen-systems/vtp-runtime/orchestrator"
+	"github.com/zen-systems/vtp-runtime/registry"
 )
 
 var (
@@ -26,9 +33,21 @@ var (
 	adapterFlag string
 	modelFlag   string
 	aliases     *config.ModelAliases
+
+	// Global VTP components
+	vtpOrchestrator *orchestrator.Orchestrator
+	vtpListener     *bridge.Listener
 )
 
 func main() {
+	// Initialize VTP Layer
+	initVTP()
+	defer func() {
+		if vtpListener != nil {
+			vtpListener.Close()
+		}
+	}()
+
 	rootCmd := &cobra.Command{
 		Use:   "flowgate",
 		Short: "AI orchestration system with intelligent routing and quality gates",
@@ -416,14 +435,15 @@ func runCmd() *cobra.Command {
 			p.Adapters = adapters
 
 			result, err := pipeline.Run(context.Background(), p, pipeline.RunOptions{
-				Input:         input,
-				WorkspacePath: workspaceFlag,
-				EvidenceDir:   outFlag,
-				PipelinePath:  pipelineFile,
-				RoutingConfig: cfg.RoutingConfig,
-				MaxBudgetUSD:  maxBudgetUSD,
-				ApplyForReal:  applyFlag,
-				ApplyApproved: approveFlag,
+				Input:           input,
+				WorkspacePath:   workspaceFlag,
+				EvidenceDir:     outFlag,
+				PipelinePath:    pipelineFile,
+				RoutingConfig:   cfg.RoutingConfig,
+				MaxBudgetUSD:    maxBudgetUSD,
+				ApplyForReal:    applyFlag,
+				ApplyApproved:   approveFlag,
+				VTPOrchestrator: vtpOrchestrator, // Pass the global orchestrator
 			})
 			if err != nil {
 				return err
@@ -560,4 +580,58 @@ func createAdapters(cfg *config.Config) (map[string]adapter.Adapter, error) {
 	adapters["mock"] = adapter.NewMockAdapter()
 
 	return adapters, nil
+}
+
+func initVTP() {
+	// 1. Initialize Registry
+	reg := registry.NewRegistry()
+
+	// Register Provenance Gate
+	provGate := provenance.New(provenance.Config{
+		TavilyAPIKey: os.Getenv("TAVILY_API_KEY"),
+	})
+	if err := reg.Register(provGate); err != nil {
+		log.Printf("Failed to register provenance gate: %v", err)
+	}
+
+	// 2.5 Initialize Archive
+	store, err := archive.NewStore("") // Use default ~/.flowgate/archive
+	if err != nil {
+		log.Printf("Failed to initialize archive: %v", err)
+	}
+
+	// 2.6 Initialize Policy & Signer
+	policyReg := policy.NewRegistry()
+	signer, err := crypto.NewSigner("flowgate-cli")
+	if err != nil {
+		log.Printf("Failed to initialize signer: %v", err)
+	}
+
+	// 3. Initialize Orchestrator
+	orchCfg := orchestrator.OrchestratorConfig{
+		Registry:       reg,
+		SignerID:       "flowgate-cli",
+		Archive:        store,
+		PolicyRegistry: policyReg,
+		Signer:         signer,
+	}
+	vtpOrchestrator = orchestrator.NewOrchestrator(orchCfg)
+
+	// 4. Connect to Zenedge Kernel via Shared Memory
+	// Path defined in zenedge_bridge.py is /dev/shm/zenedge.shm
+	shmPath := "/dev/shm/zenedge.shm"
+	// Fallback for local testing if not exists
+	if _, err := os.Stat(shmPath); os.IsNotExist(err) {
+		// Log warning but proceed
+	}
+
+	l, err := bridge.NewListener(shmPath, vtpOrchestrator)
+	if err != nil {
+		log.Printf("[VTP] Warning: Failed to connect to Zenedge Bridge: %v", err)
+	} else {
+		vtpListener = l
+		log.Printf("[VTP] Connected to Zenedge Kernel at %s", shmPath)
+		// 4. Start Listener
+		go vtpListener.ListenForSignals()
+	}
 }

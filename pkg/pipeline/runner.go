@@ -22,19 +22,21 @@ import (
 	"github.com/zen-systems/flowgate/pkg/repair"
 	"github.com/zen-systems/flowgate/pkg/router"
 	"github.com/zen-systems/flowgate/pkg/workspace"
+	"github.com/zen-systems/vtp-runtime/orchestrator"
 )
 
 // RunOptions configures pipeline execution.
 type RunOptions struct {
-	Input         string
-	WorkspacePath string
-	EvidenceDir   string
-	PipelinePath  string
-	RoutingConfig *config.RoutingConfig
-	MaxBudgetUSD  float64
-	ApplyForReal  bool
-	ApplyApproved bool
-	Logger        func(format string, args ...any)
+	Input           string
+	WorkspacePath   string
+	EvidenceDir     string
+	PipelinePath    string
+	RoutingConfig   *config.RoutingConfig
+	MaxBudgetUSD    float64
+	ApplyForReal    bool
+	ApplyApproved   bool
+	Logger          func(format string, args ...any)
+	VTPOrchestrator *orchestrator.Orchestrator
 }
 
 // RunResult captures pipeline outputs.

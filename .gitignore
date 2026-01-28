@@ -1,5 +1,5 @@
 # Binaries
-flowgate
+/flowgate
 *.exe
 
 # IDE
