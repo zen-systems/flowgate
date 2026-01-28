@@ -17,6 +17,10 @@ type Store struct {
 	BasePath string
 }
 
+type validatable interface {
+	Validate() error
+}
+
 // NewStore creates a new archive store.
 func NewStore(basePath string) (*Store, error) {
 	if basePath == "" {
@@ -44,6 +48,12 @@ func NewStore(basePath string) (*Store, error) {
 
 // StoreObject stores a JSON object by its SHA256 content hash in a sharded directory structure.
 func (s *Store) StoreObject(obj any, kind string) (schema.EvidenceRef, error) {
+	if v, ok := obj.(validatable); ok {
+		if err := v.Validate(); err != nil {
+			return schema.EvidenceRef{}, err
+		}
+	}
+
 	data, err := json.Marshal(obj)
 	if err != nil {
 		return schema.EvidenceRef{}, err
@@ -51,6 +61,14 @@ func (s *Store) StoreObject(obj any, kind string) (schema.EvidenceRef, error) {
 
 	hashBytes := sha256.Sum256(data)
 	hash := hex.EncodeToString(hashBytes[:])
+
+	ref := schema.EvidenceRef{
+		Kind:   kind,
+		SHA256: hash,
+	}
+	if err := ref.Validate(); err != nil {
+		return schema.EvidenceRef{}, err
+	}
 
 	// Shard by first 2 chars
 	shard := hash[:2]
@@ -64,16 +82,21 @@ func (s *Store) StoreObject(obj any, kind string) (schema.EvidenceRef, error) {
 		return schema.EvidenceRef{}, err
 	}
 
-	return schema.EvidenceRef{
-		Kind:   kind,
-		SHA256: hash,
-	}, nil
+	return ref, nil
 }
 
 // StoreBlob stores raw bytes (e.g. output code) and returns a ref.
 func (s *Store) StoreBlob(data []byte) (schema.EvidenceRef, error) {
 	hashBytes := sha256.Sum256(data)
 	hash := hex.EncodeToString(hashBytes[:])
+
+	ref := schema.EvidenceRef{
+		Kind:   string(schema.EvidenceKindOutput),
+		SHA256: hash,
+	}
+	if err := ref.Validate(); err != nil {
+		return schema.EvidenceRef{}, err
+	}
 
 	shard := hash[:2]
 	dir := filepath.Join(s.BasePath, "objects", shard)
@@ -87,14 +110,21 @@ func (s *Store) StoreBlob(data []byte) (schema.EvidenceRef, error) {
 		return schema.EvidenceRef{}, err
 	}
 
-	return schema.EvidenceRef{
-		Kind:   "output",
-		SHA256: hash,
-	}, nil
+	return ref, nil
 }
 
 // StoreAttestation stores a signed attestation in the attestations directory.
 func (s *Store) StoreAttestation(att *schema.AttestationV1) error {
+	if att == nil {
+		return fmt.Errorf("attestation required")
+	}
+	if err := att.Validate(); err != nil {
+		return err
+	}
+	if att.Signature == nil {
+		return fmt.Errorf("attestation signature required")
+	}
+
 	data, err := json.MarshalIndent(att, "", "  ") // Indent for human readability
 	if err != nil {
 		return err

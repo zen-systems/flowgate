@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -56,12 +57,17 @@ func NewSigner(keyID string) (*Signer, error) {
 
 // SignAttestation signs the attestation and attaches the signature.
 func (s *Signer) SignAttestation(att *schema.AttestationV1) error {
-	// Canonicalize content to sign (without signature field)
-	// schema struct has Signature *Signature `json:"signature,omitempty"`
-	// so if it's nil, it's omitted.
-	att.Signature = nil
+	if att == nil {
+		return fmt.Errorf("attestation required")
+	}
 
-	data, err := json.Marshal(att)
+	attCopy := *att
+	attCopy.Signature = nil
+	if err := attCopy.Validate(); err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(&attCopy)
 	if err != nil {
 		return err
 	}
@@ -76,4 +82,64 @@ func (s *Signer) SignAttestation(att *schema.AttestationV1) error {
 	}
 
 	return nil
+}
+
+// VerifyAttestationSignature verifies the attached signature against the payload.
+func VerifyAttestationSignature(att *schema.AttestationV1) error {
+	if att == nil {
+		return fmt.Errorf("attestation required")
+	}
+	if att.Signature == nil {
+		return fmt.Errorf("signature required")
+	}
+	if err := att.Signature.Validate(); err != nil {
+		return err
+	}
+
+	attCopy := *att
+	attCopy.Signature = nil
+	if err := attCopy.Validate(); err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(&attCopy)
+	if err != nil {
+		return err
+	}
+
+	sigBytes, err := base64.StdEncoding.DecodeString(att.Signature.Sig)
+	if err != nil {
+		return fmt.Errorf("decode signature: %w", err)
+	}
+
+	pubKey, err := loadPublicKey(att.Signature.PubKeyID)
+	if err != nil {
+		return err
+	}
+
+	if !ed25519.Verify(pubKey, data, sigBytes) {
+		return fmt.Errorf("invalid attestation signature")
+	}
+
+	return nil
+}
+
+func loadPublicKey(keyID string) (ed25519.PublicKey, error) {
+	if keyID == "" {
+		return nil, fmt.Errorf("pubkey_id required")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	keyPath := filepath.Join(home, ".flowgate", "keys", keyID+".key")
+	data, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, err
+	}
+	priv := ed25519.PrivateKey(data)
+	if len(priv) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("invalid private key size")
+	}
+	return priv.Public().(ed25519.PublicKey), nil
 }
