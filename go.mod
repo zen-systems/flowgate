@@ -1,14 +1,17 @@
 module github.com/zen-systems/flowgate
 
-go 1.24
+go 1.25.4
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.19.0
 	github.com/openai/openai-go v1.12.0
 	github.com/spf13/cobra v1.10.2
+	github.com/zen-systems/vtp v0.1.0
 	google.golang.org/genai v1.42.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+replace github.com/zen-systems/vtp => ../../vtp
 
 require (
 	cloud.google.com/go v0.116.0 // indirect

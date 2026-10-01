@@ -11,3 +11,6 @@ flowgate
 
 # Test coverage
 coverage.out
+
+# Local pipeline run artifacts
+.flowgate/runs/

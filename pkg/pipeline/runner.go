@@ -17,6 +17,7 @@ import (
 	"github.com/zen-systems/flowgate/pkg/adapter"
 	"github.com/zen-systems/flowgate/pkg/artifact"
 	"github.com/zen-systems/flowgate/pkg/config"
+	"github.com/zen-systems/flowgate/pkg/epistemic"
 	"github.com/zen-systems/flowgate/pkg/evidence"
 	"github.com/zen-systems/flowgate/pkg/gate"
 	"github.com/zen-systems/flowgate/pkg/repair"
@@ -32,6 +33,7 @@ type RunOptions struct {
 	PipelinePath  string
 	RoutingConfig *config.RoutingConfig
 	MaxBudgetUSD  float64
+	WebSearch     router.WebSearch
 	ApplyForReal  bool
 	ApplyApproved bool
 	Logger        func(format string, args ...any)
@@ -106,11 +108,21 @@ func Run(ctx context.Context, pipeline *Pipeline, opts RunOptions) (*RunResult, 
 	}
 
 	tracker := newCostTracker(opts.RoutingConfig, opts.MaxBudgetUSD)
-	var routingDecision *router.Decision
+	var routingDecision *epistemic.RoutingDecision
+	var policy *epistemic.EpistemicPolicy
 	if opts.RoutingConfig != nil {
-		classifier := router.NewClassifier(adapters, opts.RoutingConfig)
-		decision, _ := classifier.Classify(ctx, opts.Input)
-		routingDecision = decision
+		policy = &opts.RoutingConfig.Policy
+		decision, err := router.Decide(ctx, opts.Input, adapters, opts.RoutingConfig, opts.WebSearch)
+		if err == nil && decision != nil {
+			routingDecision = decision
+		} else {
+			heuristic := router.HeuristicDecision(opts.Input, opts.RoutingConfig)
+			if heuristic != nil {
+				routingDecision = &epistemic.RoutingDecision{Heuristic: *heuristic, Final: *heuristic}
+			}
+		}
+	} else {
+		policy = &epistemic.EpistemicPolicy{}
 	}
 
 	runID := filepath.Base(writer.RunDir())
@@ -122,6 +134,7 @@ func Run(ctx context.Context, pipeline *Pipeline, opts RunOptions) (*RunResult, 
 		Workspace:       workspacePath,
 		ToolVersions:    map[string]string{"go": runtime.Version()},
 		RoutingDecision: routingDecision,
+		EpistemicPolicy: policy,
 	}
 	if err := writer.WriteRun(runRecord); err != nil {
 		return nil, err
@@ -135,18 +148,16 @@ func Run(ctx context.Context, pipeline *Pipeline, opts RunOptions) (*RunResult, 
 	}
 
 	results := make(map[string]*StageResult)
-	stageRecords := make(map[string]*evidence.StageRecord)
 	artifacts := make(map[string]ArtifactTemplateData)
 	stagesLegacy := make(map[string]map[string]string)
 
 	for _, stage := range pipeline.Stages {
-		stageResult, stageRecord, err := runStage(ctx, writer, stage, adapters, pipeline, opts.Input, workspacePath, opts.ApplyForReal, opts.ApplyApproved, opts.RoutingConfig, tracker, artifacts, stagesLegacy)
+		stageResult, stageRecord, err := runStage(ctx, writer, stage, adapters, pipeline, opts.Input, workspacePath, opts.ApplyForReal, opts.ApplyApproved, opts.RoutingConfig, routingDecision, tracker, artifacts, stagesLegacy)
 		if stageRecord != nil {
 			stageRecord.Name = stage.Name
 			if writeErr := writer.WriteStage(*stageRecord); writeErr != nil {
 				return nil, writeErr
 			}
-			stageRecords[stage.Name] = stageRecord
 		}
 		if err != nil {
 			if writeErr := finalizeRun(); writeErr != nil {
@@ -164,9 +175,6 @@ func Run(ctx context.Context, pipeline *Pipeline, opts RunOptions) (*RunResult, 
 		stagesLegacy[stage.Name] = map[string]string{"output": stageResult.Artifact.Content}
 	}
 
-	if routingDecision != nil {
-		routingDecision.Feedback = buildRoutingFeedback(stageRecords, opts.Input, opts.RoutingConfig, routingDecision.TaskType)
-	}
 	if err := finalizeRun(); err != nil {
 		return nil, err
 	}
@@ -189,6 +197,7 @@ func runStage(
 	applyForReal bool,
 	applyApproved bool,
 	routing *config.RoutingConfig,
+	routingDecision *epistemic.RoutingDecision,
 	tracker *costTracker,
 	artifacts map[string]ArtifactTemplateData,
 	stagesLegacy map[string]map[string]string,
@@ -203,7 +212,28 @@ func runStage(
 	start := time.Now()
 	stageRecord := &evidence.StageRecord{}
 
+	prompt, err := renderPrompt(stage.Prompt, input, artifacts, stagesLegacy)
+	if err != nil {
+		return nil, stageRecord, fmt.Errorf("render prompt for stage %s: %w", stage.Name, err)
+	}
+
 	adapterName := stage.Adapter
+	model := stage.Model
+
+	if adapterName == "" && model == "" && routing != nil {
+		taskType := stage.TaskType
+		if taskType == "" && routingDecision != nil {
+			taskType = routingDecision.Final.Choice
+		}
+		if task, ok := routing.TaskTypes[taskType]; ok {
+			adapterName = task.Adapter
+			model = task.Model
+		} else {
+			adapterName = routing.Default.Adapter
+			model = routing.Default.Model
+		}
+	}
+
 	if adapterName == "" {
 		adapterName = pipeline.DefaultAdapter
 	}
@@ -215,7 +245,6 @@ func runStage(
 		return nil, stageRecord, fmt.Errorf("adapter %s not found", adapterName)
 	}
 
-	model := stage.Model
 	if model == "" {
 		model = pipeline.DefaultModel
 	}
@@ -227,11 +256,6 @@ func runStage(
 	}
 	if model == "" {
 		return nil, stageRecord, fmt.Errorf("model not specified for stage %s", stage.Name)
-	}
-
-	prompt, err := renderPrompt(stage.Prompt, input, artifacts, stagesLegacy)
-	if err != nil {
-		return nil, stageRecord, fmt.Errorf("render prompt for stage %s: %w", stage.Name, err)
 	}
 
 	promptRef, promptSha, err := writer.WriteBlob("prompt", []byte(prompt))
@@ -697,37 +721,4 @@ func fingerprintViolations(violations []gate.Violation, applyErr error) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func buildRoutingFeedback(stageRecords map[string]*evidence.StageRecord, input string, cfg *config.RoutingConfig, currentTask string) *router.RoutingFeedback {
-	feedback := &router.RoutingFeedback{
-		GatesPassed:    true,
-		AttemptsNeeded: 0,
-	}
-
-	for _, record := range stageRecords {
-		feedback.AttemptsNeeded += len(record.Attempts)
-		for _, gateResult := range record.GateResults {
-			if !gateResult.Passed || gateResult.Error != "" {
-				feedback.GatesPassed = false
-				break
-			}
-		}
-		if !feedback.GatesPassed {
-			break
-		}
-	}
-
-	if cfg == nil {
-		return feedback
-	}
-
-	heuristic := router.HeuristicDecision(input, cfg)
-	threshold := cfg.ClassifierConfidenceThreshold
-	if threshold <= 0 {
-		threshold = 0.65
-	}
-	if heuristic != nil && heuristic.TaskType != currentTask && heuristic.Confidence >= threshold {
-		feedback.WouldReroute = heuristic.TaskType
-	}
-
-	return feedback
-}
+// buildRoutingFeedback removed: epistemic decisions are recorded without post-run feedback.

@@ -11,19 +11,20 @@ import (
 	"time"
 
 	"github.com/zen-systems/flowgate/pkg/adapter"
-	"github.com/zen-systems/flowgate/pkg/router"
+	"github.com/zen-systems/flowgate/pkg/epistemic"
 )
 
 // RunRecord captures run-level metadata.
 type RunRecord struct {
-	ID              string            `json:"id"`
-	Timestamp       time.Time         `json:"timestamp"`
-	PipelineFile    string            `json:"pipeline_file"`
-	InputHash       string            `json:"input_hash"`
-	Workspace       string            `json:"workspace"`
-	ToolVersions    map[string]string `json:"tool_versions,omitempty"`
-	CostReport      *RunCostReport    `json:"cost_report,omitempty"`
-	RoutingDecision *router.Decision  `json:"routing_decision,omitempty"`
+	ID              string                     `json:"id"`
+	Timestamp       time.Time                  `json:"timestamp"`
+	PipelineFile    string                     `json:"pipeline_file"`
+	InputHash       string                     `json:"input_hash"`
+	Workspace       string                     `json:"workspace"`
+	ToolVersions    map[string]string          `json:"tool_versions,omitempty"`
+	CostReport      *RunCostReport             `json:"cost_report,omitempty"`
+	RoutingDecision *epistemic.RoutingDecision `json:"routing_decision,omitempty"`
+	EpistemicPolicy *epistemic.EpistemicPolicy `json:"epistemic_policy,omitempty"`
 }
 
 // RunCostReport captures aggregated cost/usage information.

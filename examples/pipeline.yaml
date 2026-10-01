@@ -1,0 +1,15 @@
+name: default
+workspace:
+  path: .
+adapters:
+  anthropic:
+    type: anthropic
+  openai:
+    type: openai
+  google:
+    type: google
+stages:
+  - name: main
+    prompt: |
+      {{ .Input }}
+
