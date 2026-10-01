@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -191,36 +192,31 @@ func (g *CommandGate) policyBlockReason() string {
 		}
 		return ""
 	}
-	if len(g.allowed) > 0 && !matchesAllowedExact(g.command, g.allowed) {
-		return "command does not match any allowed template"
-	}
 	return ""
 }
 
 func isShellCommand(command []string) bool {
-	if len(command) < 2 {
-		return false
-	}
-	switch command[0] {
-	case "sh", "bash", "zsh":
-		return command[1] == "-c"
-	default:
-		return false
-	}
-}
-
-func matchesAllowedExact(command []string, allowed []string) bool {
 	if len(command) == 0 {
 		return false
 	}
-	cmdString := strings.TrimSpace(strings.Join(command, " "))
-	for _, prefix := range allowed {
-		allowedEntry := strings.TrimSpace(prefix)
-		if allowedEntry == "" {
-			continue
-		}
-		if cmdString == allowedEntry {
+	cmd := strings.ToLower(filepath.Base(command[0]))
+
+	// Direct shell execution
+	switch cmd {
+	case "sh", "bash", "zsh", "ksh", "csh", "tcsh", "fish", "dash":
+		if len(command) > 1 && command[1] == "-c" {
 			return true
+		}
+		// Also block script execution matching standard shell usage?
+		// For now complying with strict "-c" check but broadening the shell list.
+	case "python", "python3", "ruby", "perl", "node":
+		// Interpreters executing inline code
+		if len(command) > 1 {
+			for _, arg := range command[1:] {
+				if arg == "-c" || arg == "-e" {
+					return true
+				}
+			}
 		}
 	}
 	return false

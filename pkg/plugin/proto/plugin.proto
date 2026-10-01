@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package plugin;
+
+option go_package = "github.com/zen-systems/flowgate/pkg/plugin/proto";
+
+service FlowgatePlugin {
+  // Analyze sends a request context to the plugin and receives a result.
+  rpc Analyze(AnalyzeRequest) returns (AnalyzeResult);
+}
+
+message AnalyzeRequest {
+  string run_id = 1;
+  string input = 2;
+  map<string, bytes> artifacts = 3;
+  map<string, string> metadata = 4;
+}
+
+message AnalyzeResult {
+  string status = 1; // "pass", "fail", "skip", "neutral"
+  map<string, bytes> artifacts = 2;
+  repeated Attestation attestations = 3;
+  repeated Diagnostic diagnostics = 4;
+}
+
+message Attestation {
+  string subject = 1;
+  string claim_json = 2; // Struct data serialized as JSON
+  string hash = 3;
+  string signer = 4;
+}
+
+message Diagnostic {
+  string severity = 1; // "info", "warning", "error"
+  string message = 2;
+  map<string, string> context = 3;
+}

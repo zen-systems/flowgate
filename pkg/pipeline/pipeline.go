@@ -45,12 +45,33 @@ type CommandTemplate struct {
 	Args []string `yaml:"args,omitempty"`
 }
 
+// Option defines a functional option for pipeline execution.
+type Option func(*RunOptions)
+
+// WithWorkspace sets the workspace path.
+func WithWorkspace(path string) Option {
+	return func(o *RunOptions) {
+		o.WorkspacePath = path
+	}
+}
+
 // Run executes the pipeline with the given input using configured adapters.
-func (p *Pipeline) Run(input string) error {
+func (p *Pipeline) Run(ctx context.Context, input string, opts ...Option) (*RunResult, error) {
 	if len(p.Adapters) == 0 {
-		return fmt.Errorf("pipeline adapters are not configured")
+		return nil, fmt.Errorf("pipeline adapters are not configured")
 	}
 
-	_, err := Run(context.Background(), p, RunOptions{Input: input})
-	return err
+	options := RunOptions{
+		Input: input,
+	}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	// Ensure required fields are set if not provided by options
+	if options.WorkspacePath == "" {
+		options.WorkspacePath = p.Workspace.Path
+	}
+
+	return Run(ctx, p, options)
 }

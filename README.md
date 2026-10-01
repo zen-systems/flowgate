@@ -1,4 +1,4 @@
-# flowgate
+# Flowgate
 
 AI orchestration system with intelligent routing, quality gates, and evidence bundles.
 
@@ -15,74 +15,62 @@ AI orchestration system with intelligent routing, quality gates, and evidence bu
 - **Quality gates** using hollowcheck and command-based tooling
 - **Repair loops** that feed failures back to models
 - **Multi-stage pipelines** with evidence bundles per run
+- **Attestations** for supply chain verification
 
 ## Quick Start
 
 ```bash
 go install github.com/zen-systems/flowgate@latest
 
-# Set API keys
+# Set API keys (environment variables only for security)
 export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 export GOOGLE_API_KEY=AIza...
 export DEEPSEEK_API_KEY=sk-...
 
-# Or use config file
-mkdir -p ~/.flowgate
-cat > ~/.flowgate/config.yaml << 'EOF'
-api_keys:
-  anthropic: "sk-ant-..."
-  openai: "sk-..."
-  google: "AIza..."
-  deepseek: "sk-..."
-EOF
-
 # Ask a question (auto-routes to best model)
 flowgate ask "Research tree-sitter Go bindings"
-# → Routes to google/gemini-2.0-pro
+# → Routes to google/gemini-3-pro
 
 flowgate ask "Implement a rate limiter in Go"
 # → Routes to anthropic/claude-sonnet-4-20250514
 
-# Override routing
-flowgate ask --adapter openai --model gpt-5.2-codex "Scaffold a REST API"
+# Override routing with model alias
+flowgate ask --model quality "Review this architecture"
 
 # See routing rules
 flowgate routes
+
+# See available models
+flowgate models
 ```
 
 ## Pipelines
 
-Run the example pipeline locally (uses the mock adapter and command gates):
+Run a multi-stage pipeline:
 
 ```bash
-flowgate run -f pipelines/examples/feature.yaml -i "add a simple config loader"
+flowgate run --input "add user authentication" pipelines/feature.yaml
 ```
 
-Evidence bundles are written to:
+Evidence bundles are written to `~/.flowgate/runs/<run-id>/`.
 
-```
-.flowgate/runs/<run-id>/
-```
-
-By default, stages with `apply: true` run in a temp workspace; use `--apply` to persist changes:
+Allow shell commands in gates:
 
 ```bash
-flowgate run -f pipelines/examples/feature.yaml -i "add a simple config loader" --apply
-```
-
-You can override the base directory with `--out`:
-
-```bash
-flowgate run -f pipelines/examples/refactor.yaml -i "refactor router" --out /tmp/flowgate-runs
+flowgate run --yes --input "add unit tests" pipelines/feature.yaml
 ```
 
 ## Attestations
 
-Generate a v0 attestation JSON from an existing run:
+Generate and verify attestations for supply chain verification:
 
 ```bash
-flowgate attest --run .flowgate/runs/<run-id> --stage implement --out /tmp/attestation.json
+# Generate attestation from a run
+flowgate attest <run-id> --output attestation.json
+
+# Verify attestation integrity
+flowgate verify attestation.json
 ```
 
 ## Pipeline Example
@@ -90,66 +78,58 @@ flowgate attest --run .flowgate/runs/<run-id> --stage implement --out /tmp/attes
 ```yaml
 name: feature-implementation
 
-workspace:
-  path: .
-
 gates:
   go_test:
     type: command
     command: ["go", "test", "./..."]
-    workdir: .
-    allowed_commands: ["go test"]
-    deny_shell: true
 
 stages:
   - name: research
-    adapter: mock
-    model: mock-1
+    task_type: research
     prompt: "Research best practices for {{ .Input }}"
 
-  - name: outline
-    adapter: mock
-    model: mock-1
-    prompt: "Create an outline based on: {{ .Artifacts.research.Text }}"
-
   - name: implement
-    adapter: mock
-    model: mock-1
-    prompt: "Implement this outline: {{ .Artifacts.outline.Text }}"
-    gates:
-      - go_test
-    max_retries: 1
+    task_type: implement
+    prompt: "Implement based on: {{ .Artifacts.research.Text }}"
+    gates: [go_test]
+    max_retries: 2
+    apply: true
 ```
 
-## Gates and Repair Loops
+## Documentation
 
-- Gates run in order for each stage.
-- If a gate fails or errors, the stage fails closed by default.
-  - If `max_retries` is set, a repair prompt is generated using gate feedback and the stage is retried.
-  - Command gates capture stdout, stderr, exit code, and duration in the evidence bundle.
-  - Command gates can restrict execution with `allowed_commands` and `deny_shell` (default true).
-
-## Evidence Bundle
-
-Each run records:
-
-- run metadata (timestamp, pipeline path, input hash)
-- per-stage prompt and output (or hashes if large)
-- gate results and command outputs
-- repair attempts and outcomes
+| Document | Description |
+|----------|-------------|
+| [CLI Reference](docs/CLI_REFERENCE.md) | Complete command and flag documentation |
+| [Pipeline Manifests](docs/PIPELINE_MANIFESTS.md) | Pipeline YAML specification |
+| [Routing](docs/ROUTING.md) | Intelligent routing configuration |
+| [Quality Gates](docs/QUALITY_GATES.md) | Gate types, security, and repair loops |
+| [Attestation](docs/ATTESTATION.md) | Evidence bundles and verification |
+| [Workflows](docs/WORKFLOWS.md) | Common usage patterns and examples |
+| [System Architecture](docs/SYSTEM.md) | Complete system documentation |
 
 ## Configuration
 
-### Config File (`~/.flowgate/config.yaml`)
+### Environment Variables (Required for API Keys)
 
-```yaml
-api_keys:
-  anthropic: "sk-ant-..."
-  openai: "sk-..."
-  google: "AIza..."
-  deepseek: "sk-..."
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-..."
+export GOOGLE_API_KEY="..."
+export DEEPSEEK_API_KEY="..."
 ```
 
-### Custom Routing (`~/.flowgate/routing.yaml`)
+### Config Files
 
-See `configs/routing.yaml` for an example routing configuration.
+- `~/.flowgate/config.yaml` - General configuration
+- `~/.flowgate/routing.yaml` - Custom routing rules
+- `configs/models.yaml` - Model aliases
+
+See [CLI Reference](docs/CLI_REFERENCE.md) for details.
+
+## Security
+
+- Shell execution is **denied by default** in command gates
+- API keys must be set via **environment variables only**
+- Workspace operations are **confined to the specified directory**
+- All artifacts are **hashed with SHA-256** for attestation

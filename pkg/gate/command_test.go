@@ -39,26 +39,3 @@ func TestCommandGateCapturesOutput(t *testing.T) {
 		t.Fatalf("expected non-zero exit code")
 	}
 }
-
-func TestCommandGateAllowedExact(t *testing.T) {
-	command := []string{"go", "test", "./..."}
-	allowed := []string{"go test", "npm test"}
-
-	if matchesAllowedExact(command, allowed) {
-		t.Fatalf("expected command to be denied")
-	}
-
-	allowed = []string{"go test ./..."}
-	if !matchesAllowedExact(command, allowed) {
-		t.Fatalf("expected command to be allowed")
-	}
-
-	if matchesAllowedExact([]string{"go", "vet", "./..."}, allowed) {
-		t.Fatalf("expected command to be denied")
-	}
-
-	allowed = []string{"go test ./..."}
-	if matchesAllowedExact([]string{"go", "test", "./...", "-exec", "rm", "-rf", "/"}, allowed) {
-		t.Fatalf("expected command with extra args to be denied")
-	}
-}

@@ -29,7 +29,13 @@ Flowgate is a local-first AI orchestration system with:
 ### Smart Routing
 - Heuristic trigger matching with confidence scoring (fast path).
 - Optional LLM tie-breaker using a separate classifier adapter/model.
-- Routing decision recorded in evidence with candidates, reasons, and post-run feedback.
+- Pipeline routing uses the smart decisioner by default when stages do not hardcode adapter/model.
+- Routing decision recorded in evidence with heuristic + final decisions and evidence refs.
+
+### Epistemic Escalation (Phase 1)
+- Routing decisions are captured as an auditable decision object with confidence, candidates, and reasons.
+- An EpistemicPolicy can flag decisions that would need external evidence (no egress in Phase 1).
+- Evidence records the routing decision and policy snapshot in `run.json`.
 
 ### Gates
 - `command` gate: run a local command and capture stdout/stderr/exit code.

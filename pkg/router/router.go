@@ -40,7 +40,6 @@ type DefaultRouter struct {
 	rules    *RuleSet
 	config   *config.RoutingConfig
 	debug    bool
-	decision *Decision
 }
 
 // RouterOption configures a DefaultRouter.
@@ -76,23 +75,7 @@ func NewRouter(adapters map[string]adapter.Adapter, cfg *config.RoutingConfig, o
 
 // Route determines the adapter and model for a prompt.
 func (r *DefaultRouter) Route(prompt string) (adapter.Adapter, string) {
-	a, model, _ := r.RouteWithDecision(context.Background(), prompt)
-	return a, model
-}
-
-// RouteWithDecision determines the adapter/model for a prompt and returns the decision.
-func (r *DefaultRouter) RouteWithDecision(ctx context.Context, prompt string) (adapter.Adapter, string, *Decision) {
 	adapterName, model := r.rules.Match(prompt)
-	decision, err := NewClassifier(r.adapters, r.config).Classify(ctx, prompt)
-	if err != nil && r.debug {
-		log.Printf("[router] classifier error: %v", err)
-	}
-	if decision != nil && decision.TaskType != "" && decision.TaskType != "default" {
-		if task, ok := r.config.TaskTypes[decision.TaskType]; ok {
-			adapterName = task.Adapter
-			model = task.Model
-		}
-	}
 
 	a, ok := r.adapters[adapterName]
 	if !ok {
@@ -106,11 +89,8 @@ func (r *DefaultRouter) RouteWithDecision(ctx context.Context, prompt string) (a
 	if r.debug && model != resolvedModel {
 		log.Printf("[router] resolved alias %q -> %q", model, resolvedModel)
 	}
-	if decision != nil {
-		r.decision = decision
-	}
 
-	return a, resolvedModel, decision
+	return a, resolvedModel
 }
 
 // resolveModel resolves a model alias to its canonical name.
@@ -155,9 +135,4 @@ func (r *DefaultRouter) GetRoutes() []RouteInfo {
 // GetAliases returns the model aliases, if configured.
 func (r *DefaultRouter) GetAliases() *config.ModelAliases {
 	return r.aliases
-}
-
-// Decision returns the last routing decision, if any.
-func (r *DefaultRouter) Decision() *Decision {
-	return r.decision
 }

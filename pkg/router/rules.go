@@ -1,6 +1,7 @@
 package router
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/zen-systems/flowgate/pkg/config"
@@ -43,13 +44,9 @@ func (rs *RuleSet) compile() {
 	}
 
 	// Sort by trigger length (longer triggers are more specific)
-	for i := 0; i < len(rs.rules); i++ {
-		for j := i + 1; j < len(rs.rules); j++ {
-			if len(rs.rules[j].trigger) > len(rs.rules[i].trigger) {
-				rs.rules[i], rs.rules[j] = rs.rules[j], rs.rules[i]
-			}
-		}
-	}
+	sort.Slice(rs.rules, func(i, j int) bool {
+		return len(rs.rules[i].trigger) > len(rs.rules[j].trigger)
+	})
 }
 
 // Match finds the best matching rule for a prompt.
@@ -82,29 +79,30 @@ func (rs *RuleSet) MatchWithTaskType(prompt string) (taskType, adapter, model st
 // containsTrigger checks if the prompt contains the trigger phrase.
 // It looks for the trigger as a word or phrase boundary match.
 func containsTrigger(prompt, trigger string) bool {
-	idx := strings.Index(prompt, trigger)
-	if idx == -1 {
+	if trigger == "" {
 		return false
 	}
 
-	// Check word boundary before trigger
-	if idx > 0 {
-		prev := prompt[idx-1]
-		if isWordChar(prev) {
+	start := 0
+	for {
+		idx := strings.Index(prompt[start:], trigger)
+		if idx == -1 {
 			return false
 		}
-	}
 
-	// Check word boundary after trigger
-	endIdx := idx + len(trigger)
-	if endIdx < len(prompt) {
-		next := prompt[endIdx]
-		if isWordChar(next) {
-			return false
+		realIdx := start + idx
+
+		// Check boundaries
+		isStartBoundary := realIdx == 0 || !isWordChar(prompt[realIdx-1])
+		isEndBoundary := (realIdx+len(trigger) == len(prompt)) || !isWordChar(prompt[realIdx+len(trigger)])
+
+		if isStartBoundary && isEndBoundary {
+			return true
 		}
-	}
 
-	return true
+		// Move forward to search for next occurrence
+		start = realIdx + 1
+	}
 }
 
 func isWordChar(c byte) bool {

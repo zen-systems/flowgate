@@ -3,20 +3,23 @@ package config
 import (
 	"os"
 
+	"github.com/zen-systems/flowgate/pkg/epistemic"
 	"gopkg.in/yaml.v3"
 )
 
 // RoutingConfig holds the routing rules configuration.
 type RoutingConfig struct {
-	TaskTypes                     map[string]TaskType `yaml:"task_types"`
-	Default                       RouteTarget         `yaml:"default"`
-	Retry                         RetryConfig         `yaml:"retry,omitempty"`
-	Fallback                      FallbackConfig      `yaml:"fallback,omitempty"`
-	Pricing                       PricingConfig       `yaml:"pricing,omitempty"`
-	ClassifierAdapter             string              `yaml:"classifier_adapter,omitempty"`
-	ClassifierModel               string              `yaml:"classifier_model,omitempty"`
-	ClassifierConfidenceThreshold float64             `yaml:"classifier_confidence_threshold,omitempty"`
-	EnableLLMTieBreaker           *bool               `yaml:"enable_llm_tie_breaker,omitempty"`
+	TaskTypes                     map[string]TaskType       `yaml:"task_types"`
+	Default                       RouteTarget               `yaml:"default"`
+	Retry                         RetryConfig               `yaml:"retry,omitempty"`
+	Fallback                      FallbackConfig            `yaml:"fallback,omitempty"`
+	Pricing                       PricingConfig             `yaml:"pricing,omitempty"`
+	ClassifierAdapter             string                    `yaml:"classifier_adapter,omitempty"`
+	ClassifierModel               string                    `yaml:"classifier_model,omitempty"`
+	ClassifierConfidenceThreshold float64                   `yaml:"classifier_confidence_threshold,omitempty"`
+	EnableLLMTieBreaker           *bool                     `yaml:"enable_llm_tie_breaker,omitempty"`
+	Policy                        epistemic.EpistemicPolicy `yaml:"policy,omitempty"`
+	EnableTavily                  bool                      `yaml:"enable_tavily,omitempty"`
 }
 
 // TaskType defines a category of tasks with routing rules.
@@ -187,5 +190,8 @@ func applyRoutingDefaults(cfg *RoutingConfig) {
 	if cfg.EnableLLMTieBreaker == nil {
 		enabled := true
 		cfg.EnableLLMTieBreaker = &enabled
+	}
+	if cfg.Policy.ConfidenceThreshold == 0 {
+		cfg.Policy.ConfidenceThreshold = 0.65
 	}
 }
